@@ -1,0 +1,48 @@
+# Builds the iOS app for the iPhone simulator on every push, to prove the project compiles.
+# Installing on a real iPhone needs an Apple Developer account (signing + TestFlight), added later.
+name: iOS
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm install --no-audit --no-fund
+
+      - name: Build web
+        run: npm run build
+
+      - name: Create iOS project
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          npx cap add ios
+          node scripts/patch-native.mjs ios
+          npx capacitor-assets generate --ios
+          npx cap sync ios
+
+      - name: Build for simulator (unsigned)
+        run: |
+          cd ios/App
+          if [ -d App.xcworkspace ]; then TARGET="-workspace App.xcworkspace"; else TARGET="-project App.xcodeproj"; fi
+          xcodebuild $TARGET -scheme App -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+          cd build/Build/Products/Debug-iphonesimulator
+          zip -qr "$GITHUB_WORKSPACE/speed-limit-ios-simulator.zip" App.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: speed-limit-ios-simulator
+          path: speed-limit-ios-simulator.zip
