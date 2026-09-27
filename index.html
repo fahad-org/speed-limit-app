@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0A0E14">
+<title>حد السرعة</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --phi: 1.618;
+    --asphalt: #0A0E14;
+    --lane: #8A94A3;
+    --paper: #F6F5F0;
+    --ink: #111111;
+    --sign-red: #D61F26;
+    --num: 'Barlow Condensed', 'Arial Narrow', 'Roboto Condensed', sans-serif;
+    --ar: system-ui, 'Segoe UI', Tahoma, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; background: var(--asphalt); color: var(--paper); overflow: hidden; user-select: none; }
+  body {
+    display: grid;
+    grid-template-rows: calc(var(--phi) * 1fr) 1fr;
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+    font-family: var(--ar);
+  }
+
+  /* Upper zone: the sign (61.8%) */
+  .sign-zone { display: grid; place-items: center; }
+  .sign {
+    width: min(78vw, 52vh); aspect-ratio: 1; border-radius: 50%;
+    background: var(--paper);
+    border: calc(min(78vw, 52vh) * 0.11) solid var(--sign-red);
+    display: grid; place-items: center;
+    transition: opacity .4s;
+  }
+  .sign span {
+    font-family: var(--num); font-weight: 700; color: var(--ink);
+    font-size: calc(min(78vw, 52vh) * 0.42); line-height: 1; letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .sign.unknown { opacity: .35; }
+  .sign.searching { animation: breathe 1.6s ease-in-out infinite; }
+  @keyframes breathe { 50% { opacity: .3; } }
+
+  /* Lower zone: your speed (38.2%) */
+  .speed-zone {
+    display: flex; align-items: baseline; justify-content: center; gap: .4em;
+    transition: background .25s;
+  }
+  .speed-zone b {
+    font-family: var(--num); font-weight: 500; font-variant-numeric: tabular-nums;
+    font-size: min(28vw, 22vh); line-height: 1; color: var(--paper);
+    align-self: center;
+  }
+  .speed-zone small { font-size: min(4.5vw, 3vh); color: var(--lane); align-self: center; margin-top: 4vh; }
+  body.over .speed-zone { background: var(--sign-red); }
+  body.over .speed-zone small { color: var(--paper); }
+  body.over .sign { animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { transform: scale(1.04); } }
+
+  /* Sound toggle */
+  .mute {
+    position: fixed; top: calc(env(safe-area-inset-top, 0px) + 14px); left: 14px;
+    width: 48px; height: 48px; border-radius: 50%; border: 0;
+    background: transparent; color: var(--lane); display: grid; place-items: center;
+  }
+  .mute svg { width: 26px; height: 26px; }
+  .mute .off { display: none; }
+  .mute[aria-pressed="true"] .on { display: none; }
+  .mute[aria-pressed="true"] .off { display: block; }
+  .mute:focus-visible, .start:focus-visible { outline: 3px solid var(--paper); outline-offset: 4px; }
+
+  /* Start screen (a tap is needed for GPS, sound and keeping the screen on) */
+  .gate {
+    position: fixed; inset: 0; background: var(--asphalt);
+    display: grid; place-items: center; z-index: 5;
+  }
+  .gate.hidden { display: none; }
+  .start {
+    width: min(58vw, 38vh); aspect-ratio: 1; border-radius: 50%;
+    border: calc(min(58vw, 38vh) * 0.11) solid var(--sign-red); background: var(--paper);
+    color: var(--ink); font-family: var(--ar); font-weight: 700; font-size: min(9vw, 6vh);
+    cursor: pointer;
+  }
+  .msg {
+    position: fixed; bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); inset-inline: 0;
+    text-align: center; color: var(--lane); font-size: 15px; padding: 0 24px; z-index: 6;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sign.searching, body.over .sign { animation: none; }
+  }
+</style>
+</head>
+<body>
+  <section class="sign-zone">
+    <div class="sign searching" id="sign" role="img" aria-label="حد السرعة"><span id="limit">…</span></div>
+  </section>
+  <section class="speed-zone" aria-live="off">
+    <b id="speed">0</b><small>كم/س</small>
+  </section>
+
+  <button class="mute" id="mute" aria-pressed="false" aria-label="كتم الصوت">
+    <svg class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg>
+    <svg class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>
+  </button>
+
+  <div class="gate" id="gate"><button class="start" id="start">ابدأ</button></div>
+  <p class="msg" id="msg" hidden></p>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const signEl = $('sign'), limitEl = $('limit'), speedEl = $('speed'), msgEl = $('msg');
+  // Running inside the Android/iOS app (Capacitor) rather than the browser
+  const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  // ?demo or #demo in the URL: fake drive, no GPS or network needed
+  const DEMO = new URLSearchParams(location.search).has('demo') || location.hash === '#demo';
+
+  const TOLERANCE = 2;            // km/h above the limit before alerting (GPS jitter)
+  const REPEAT_MS = 6000;         // repeat beep while still over
+  const STICK_M = 18;             // stay on current road while within this distance
+  const QUERY_RADIUS = 35;
+  const OVERPASS = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
+  ];
+  const ROAD_TYPES = 'motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link';
+
+  let limit = null, speed = 0, over = false, lastAlert = 0;
+  let currentWay = null, querying = false, lastQuery = { t: 0, lat: 0, lon: 0 };
+  let prevFix = null, audio = null, wakeLock = null;
+  let muted = false;
+  try { muted = localStorage.getItem('muted') === '1'; } catch (e) {}
+  $('mute').setAttribute('aria-pressed', muted);
+
+  function say(text) { msgEl.hidden = !text; msgEl.textContent = text || ''; }
+
+  // ---- geometry (metres) ----
+  const R = 6371000, rad = d => d * Math.PI / 180;
+  function haversine(a, b) {
+    const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+  function distToWay(p, geom) {
+    const k = Math.cos(rad(p.lat));
+    const toXY = q => ({ x: rad(q.lon - p.lon) * R * k, y: rad(q.lat - p.lat) * R });
+    let best = Infinity;
+    for (let i = 0; i < geom.length - 1; i++) {
+      const a = toXY(geom[i]), b = toXY(geom[i + 1]);
+      const dx = b.x - a.x, dy = b.y - a.y, len = dx * dx + dy * dy;
+      let t = len ? -(a.x * dx + a.y * dy) / len : 0;
+      t = Math.max(0, Math.min(1, t));
+      best = Math.min(best, Math.hypot(a.x + t * dx, a.y + t * dy));
+    }
+    return best;
+  }
+
+  // ---- speed limit from OSM tags ----
+  function parseMaxspeed(v) {
+    if (!v) return null;
+    const first = String(v).split(';')[0].trim();
+    const m = first.match(/^(\d+(?:\.\d+)?)\s*(mph)?$/i);
+    if (!m) return null;
+    const n = parseFloat(m[1]);
+    return Math.round(m[2] ? n * 1.609 : n);
+  }
+
+  async function fetchRoads(lat, lon) {
+    const q = `[out:json][timeout:8];way(around:${QUERY_RADIUS},${lat},${lon})[highway~"^(${ROAD_TYPES})$"];out tags geom;`;
+    for (const url of OVERPASS) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 9000);
+      try {
+        const res = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q),
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: ctrl.signal });
+        clearTimeout(timer);
+        if (!res.ok) continue;
+        const json = await res.json();
+        return json.elements || [];
+      } catch (e) { clearTimeout(timer); }
+    }
+    throw new Error('offline');
+  }
+
+  async function updateRoad(p) {
+    if (currentWay && distToWay(p, currentWay.geometry) < STICK_M) return;
+    if (querying) return;
+    const moved = haversine(p, lastQuery);
+    if (Date.now() - lastQuery.t < 4000 && moved < 25) return;
+    querying = true;
+    lastQuery = { t: Date.now(), lat: p.lat, lon: p.lon };
+    try {
+      const ways = await fetchRoads(p.lat, p.lon);
+      let best = null, bestD = Infinity;
+      for (const w of ways) {
+        if (!w.geometry || w.geometry.length < 2) continue;
+        const d = distToWay(p, w.geometry);
+        if (d < bestD) { bestD = d; best = w; }
+      }
+      currentWay = best;
+      setLimit(best ? parseMaxspeed(best.tags.maxspeed) : null);
+      say('');
+    } catch (e) {
+      say('ما فيه اتصال بالإنترنت، والحد المعروض آخر حد معروف');
+    } finally { querying = false; }
+  }
+
+  function setLimit(v) {
+    limit = v;
+    signEl.classList.remove('searching');
+    signEl.classList.toggle('unknown', v == null);
+    limitEl.textContent = v == null ? '—' : v;
+    signEl.setAttribute('aria-label', v == null ? 'حد السرعة غير مسجّل لهذا الشارع' : `حد السرعة ${v}`);
+    checkOver();
+  }
+
+  // ---- alert ----
+  function beep() {
+    if (muted || !audio) return;
+    const t0 = audio.currentTime;
+    [0, 0.18].forEach(off => {
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.type = 'sine'; o.frequency.value = 880;
+      g.gain.setValueAtTime(0.0001, t0 + off);
+      g.gain.exponentialRampToValueAtTime(0.18, t0 + off + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + off + 0.12);
+      o.connect(g).connect(audio.destination);
+      o.start(t0 + off); o.stop(t0 + off + 0.14);
+    });
+  }
+  function alertNow() {
+    lastAlert = Date.now();
+    beep();
+    if (navigator.vibrate) navigator.vibrate([120, 80, 120]);
+  }
+  function checkOver() {
+    const now = limit != null && speed > limit + TOLERANCE;
+    if (now && !over) alertNow();
+    else if (now && Date.now() - lastAlert > REPEAT_MS) alertNow();
+    over = now;
+    document.body.classList.toggle('over', over);
+  }
+
+  // ---- GPS ----
+  function onFix(pos) {
+    const c = pos.coords, p = { lat: c.latitude, lon: c.longitude, t: pos.timestamp };
+    let kmh;
+    if (c.speed != null && !isNaN(c.speed)) kmh = c.speed * 3.6;
+    else if (prevFix) {
+      const dt = (p.t - prevFix.t) / 1000;
+      kmh = dt > 0 ? haversine(prevFix, p) / dt * 3.6 : speed;
+    } else kmh = 0;
+    prevFix = p;
+    speed = kmh < 3 ? 0 : Math.round(kmh);
+    speedEl.textContent = speed;
+    checkOver();
+    if (c.accuracy < 60) updateRoad(p);
+  }
+  function onGpsError(err) {
+    if (err.code === 1) say(NATIVE
+      ? 'التطبيق يحتاج إذن الموقع: افتح إعدادات الجوال ← التطبيقات ← حد السرعة ← الموقع'
+      : 'التطبيق يحتاج إذن الموقع: افتح إعدادات الموقع في المتصفح واسمح له');
+    else say('جاري البحث عن إشارة GPS…');
+  }
+
+  async function keepAwake() {
+    try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') keepAwake();
+  });
+
+  $('start').addEventListener('click', async () => {
+    try { audio = new (window.AudioContext || window.webkitAudioContext)(); await audio.resume(); } catch (e) {}
+    $('gate').classList.add('hidden');
+    keepAwake();
+    if (DEMO) { startDemo(); return; }
+    if (!('geolocation' in navigator)) { say('هذا المتصفح ما يدعم تحديد الموقع'); return; }
+    navigator.geolocation.watchPosition(onFix, onGpsError, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+    // The native app keeps the screen on and handles full screen itself
+    if (NATIVE) return;
+    try { if (document.documentElement.requestFullscreen && !matchMedia('(display-mode: fullscreen)').matches) await document.documentElement.requestFullscreen(); } catch (e) {}
+  });
+
+  // ---- demo: a road that changes limit, speed drifting above and below it ----
+  function startDemo() {
+    const roads = [80, 120, 60, 100];
+    let i = 0, t = 0;
+    setTimeout(() => setLimit(roads[0]), 1200);
+    setInterval(() => {
+      t += 1;
+      if (t % 20 === 0) { i = (i + 1) % roads.length; setLimit(roads[i]); }
+      if (limit == null) return;
+      speed = Math.max(0, Math.round(limit - 8 + 14 * Math.sin(t / 3)));
+      speedEl.textContent = speed;
+      checkOver();
+    }, 1000);
+  }
+
+  $('mute').addEventListener('click', () => {
+    muted = !muted;
+    $('mute').setAttribute('aria-pressed', muted);
+    $('mute').setAttribute('aria-label', muted ? 'تشغيل الصوت' : 'كتم الصوت');
+    try { localStorage.setItem('muted', muted ? '1' : '0'); } catch (e) {}
+  });
+
+  if ('serviceWorker' in navigator && !NATIVE) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  }
+})();
+</script>
+</body>
+</html>

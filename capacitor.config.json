@@ -1,0 +1,13 @@
+{
+  "appId": "com.fahad.speedlimit",
+  "appName": "حد السرعة",
+  "webDir": "www",
+  "backgroundColor": "#0A0E14",
+  "android": {
+    "backgroundColor": "#0A0E14"
+  },
+  "ios": {
+    "backgroundColor": "#0A0E14",
+    "contentInset": "never"
+  }
+}
