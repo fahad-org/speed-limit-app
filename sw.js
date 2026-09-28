@@ -1,5 +1,5 @@
-const CACHE = 'speed-limit-v2';
-const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
+const CACHE = 'speed-limit-v4';
+const SHELL = ['./', './index.html', './manifest.webmanifest', './roads.bin', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -14,8 +14,6 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-  // Map data always goes to the network
-  if (url.hostname.includes('overpass')) return;
   // Fonts: cache after first load
   if (url.hostname.includes('fonts.g')) {
     e.respondWith(caches.open(CACHE).then(async c => {
