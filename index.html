@@ -8,6 +8,9 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="حد السرعة">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700&display=swap" rel="stylesheet">
@@ -276,12 +279,13 @@
   function onFix(pos) {
     const c = pos.coords, p = { lat: c.latitude, lon: c.longitude, t: pos.timestamp };
     let kmh;
-    if (c.speed != null && !isNaN(c.speed)) kmh = c.speed * 3.6;
+    // iOS reports -1 when it has no speed or heading
+    if (c.speed != null && c.speed >= 0) kmh = c.speed * 3.6;
     else if (prevFix) {
       const dt = (p.t - prevFix.t) / 1000;
       kmh = dt > 0 ? haversine(prevFix, p) / dt * 3.6 : speed;
     } else kmh = 0;
-    if (c.heading != null && !isNaN(c.heading)) heading = c.heading;
+    if (c.heading != null && c.heading >= 0) heading = c.heading;
     else if (prevFix && haversine(prevFix, p) > 5) heading = bearing(prevFix, p);
     prevFix = p;
     speed = kmh < 3 ? 0 : Math.round(kmh);

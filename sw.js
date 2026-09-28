@@ -1,4 +1,4 @@
-const CACHE = 'speed-limit-v4';
+const CACHE = 'speed-limit-v5';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './roads.bin', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
 
 self.addEventListener('install', e => {
