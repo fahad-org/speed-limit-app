@@ -3,3 +3,5 @@ www/
 android/
 ios/
 *.apk
+
+esp32/**/build/

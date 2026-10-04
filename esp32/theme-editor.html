@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>محرر شاشة حد السرعة</title>
+<style>
+  :root { --bg:#0f1318; --panel:#171d25; --line:#2a323d; --text:#e8edf3; --muted:#8a96a5; --accent:#3d9bff; --ok:#2fb35a; }
+  :root[data-theme="light"] { --bg:#f1f3f6; --panel:#ffffff; --line:#d5dae1; --text:#1a2029; --muted:#5d6978; --accent:#0a6cdc; }
+  @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --bg:#f1f3f6; --panel:#ffffff; --line:#d5dae1; --text:#1a2029; --muted:#5d6978; --accent:#0a6cdc; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:"Segoe UI",Tahoma,system-ui,sans-serif; line-height:1.5; }
+  header { position:sticky; top:0; z-index:5; background:var(--panel); border-bottom:1px solid var(--line); padding:10px 16px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  header h1 { font-size:18px; margin:0 0 0 auto; margin-inline-end:auto; }
+  button, .btn { font:inherit; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:7px 12px; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  main { display:grid; grid-template-columns:minmax(0,1fr) 420px; gap:16px; padding:16px; max-width:1500px; margin:0 auto; }
+  @media (max-width:980px) { main { grid-template-columns:1fr; } }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; }
+  .stage { display:flex; flex-direction:column; align-items:center; gap:10px; position:sticky; top:64px; align-self:start; }
+  .screenwrap { background:#000; padding:14px; border-radius:50%; }
+  .screenwrap.square { border-radius:14px; }
+  canvas#main { display:block; width:min(86vw,520px); height:min(86vw,520px); image-rendering:pixelated; border-radius:50%; cursor:crosshair; background:#000; }
+  .square canvas#main { border-radius:0; }
+  .readout { font-family:Consolas,monospace; color:var(--muted); font-size:14px; min-height:22px; direction:ltr; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:center; }
+  .thumbs { display:grid; grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:10px; margin-top:6px; }
+  .thumb { text-align:center; font-size:12px; color:var(--muted); cursor:pointer; border:2px solid transparent; border-radius:10px; padding:4px; }
+  .thumb.on { border-color:var(--accent); color:var(--text); }
+  .thumb canvas { width:96px; height:96px; image-rendering:pixelated; border-radius:50%; background:#000; display:block; margin:0 auto 4px; }
+  details { border-top:1px solid var(--line); padding:6px 0; }
+  details:first-of-type { border-top:0; }
+  summary { cursor:pointer; font-weight:600; padding:6px 0; }
+  .ctl { display:grid; grid-template-columns:1fr auto; gap:4px 10px; align-items:center; padding:5px 0; }
+  .ctl label { font-size:14px; }
+  .ctl .hint { grid-column:1/-1; color:var(--muted); font-size:12px; direction:ltr; text-align:start; margin-top:-2px; }
+  .ctl .inp { display:flex; gap:6px; align-items:center; direction:ltr; }
+  input[type=number] { width:70px; }
+  input[type=text] { width:150px; }
+  input[type=number], input[type=text] { font:inherit; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:4px 6px; }
+  input[type=color] { width:44px; height:30px; border:1px solid var(--line); border-radius:6px; background:none; padding:2px; }
+  input[type=range] { width:110px; }
+  .hex { font-family:Consolas,monospace; font-size:13px; color:var(--muted); width:70px; }
+  .changed label::after { content:" •"; color:var(--accent); }
+  textarea { width:100%; min-height:120px; font-family:Consolas,monospace; font-size:12px; direction:ltr; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px; }
+  dialog { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:12px; max-width:640px; width:92vw; }
+  dialog::backdrop { background:rgba(0,0,0,.55); }
+  .toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--ok); color:#fff; padding:8px 16px; border-radius:8px; opacity:0; transition:opacity .2s; pointer-events:none; }
+  .toast.show { opacity:1; }
+  .note { color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>محرر شاشة حد السرعة</h1>
+  <button class="primary" id="save">حفظ theme.h</button>
+  <button id="copy">نسخ</button>
+  <button id="import">استيراد</button>
+  <button id="reset">رجوع للأصلي</button>
+</header>
+
+<main>
+  <section class="card stage">
+    <div class="screenwrap" id="wrap"><canvas id="main" width="240" height="240"></canvas></div>
+    <div class="readout" id="readout">حرّك الماوس على الشاشة لمعرفة الإحداثيات (x, y)</div>
+    <div class="row">
+      <button id="shape">عرض مربع/دائري</button>
+      <span class="note" id="stateName"></span>
+    </div>
+    <div class="thumbs" id="thumbs" style="width:100%"></div>
+    <p class="note">المعاينة تستخدم نفس الخط ونفس خوارزمية الرسم الموجودة في الجهاز. الدائرة الحقيقية 240×240، ومركزها (120, 120).</p>
+  </section>
+
+  <aside class="card" id="controls"></aside>
+</main>
+
+<dialog id="dlg">
+  <form method="dialog">
+    <p>الصق محتوى ملف theme.h هنا، أو اختر الملف:</p>
+    <textarea id="paste"></textarea>
+    <p><input type="file" id="file" accept=".h,.txt"></p>
+    <div class="row" style="justify-content:flex-end">
+      <button value="cancel">إلغاء</button>
+      <button class="primary" id="doImport" value="ok">استيراد</button>
+    </div>
+  </form>
+</dialog>
+<div class="toast" id="toast"></div>
+
+<script>
+// ---- data embedded when this page was built ----
+const FONT = [0,0,0,0,0,62,91,79,91,62,62,107,79,107,62,28,62,124,62,28,24,60,126,60,24,28,87,125,87,28,28,94,127,94,28,0,24,60,24,0,255,231,195,231,255,0,24,36,24,0,255,231,219,231,255,48,72,58,6,14,38,41,121,41,38,64,127,5,5,7,64,127,5,37,63,90,60,231,60,90,127,62,28,28,8,8,28,28,62,127,20,34,127,34,20,95,95,0,95,95,6,9,127,1,127,0,102,137,149,106,96,96,96,96,96,148,162,255,162,148,8,4,126,4,8,16,32,126,32,16,8,8,42,28,8,8,28,42,8,8,30,16,16,16,16,12,30,12,30,12,48,56,62,56,48,6,14,62,14,6,0,0,0,0,0,0,0,95,0,0,0,7,0,7,0,20,127,20,127,20,36,42,127,42,18,35,19,8,100,98,54,73,86,32,80,0,8,7,3,0,0,28,34,65,0,0,65,34,28,0,42,28,127,28,42,8,8,62,8,8,0,128,112,48,0,8,8,8,8,8,0,0,96,96,0,32,16,8,4,2,62,81,73,69,62,0,66,127,64,0,114,73,73,73,70,33,65,73,77,51,24,20,18,127,16,39,69,69,69,57,60,74,73,73,49,65,33,17,9,7,54,73,73,73,54,70,73,73,41,30,0,0,20,0,0,0,64,52,0,0,0,8,20,34,65,20,20,20,20,20,0,65,34,20,8,2,1,89,9,6,62,65,93,89,78,124,18,17,18,124,127,73,73,73,54,62,65,65,65,34,127,65,65,65,62,127,73,73,73,65,127,9,9,9,1,62,65,65,81,115,127,8,8,8,127,0,65,127,65,0,32,64,65,63,1,127,8,20,34,65,127,64,64,64,64,127,2,28,2,127,127,4,8,16,127,62,65,65,65,62,127,9,9,9,6,62,65,81,33,94,127,9,25,41,70,38,73,73,73,50,3,1,127,1,3,63,64,64,64,63,31,32,64,32,31,63,64,56,64,63,99,20,8,20,99,3,4,120,4,3,97,89,73,77,67,0,127,65,65,65,2,4,8,16,32,0,65,65,65,127,4,2,1,2,4,64,64,64,64,64,0,3,7,8,0,32,84,84,120,64,127,40,68,68,56,56,68,68,68,40,56,68,68,40,127,56,84,84,84,24,0,8,126,9,2,24,164,164,156,120,127,8,4,4,120,0,68,125,64,0,32,64,64,61,0,127,16,40,68,0,0,65,127,64,0,124,4,120,4,120,124,8,4,4,120,56,68,68,68,56,252,24,36,36,24,24,36,36,24,252,124,8,4,4,8,72,84,84,84,36,4,4,63,68,36,60,64,64,32,124,28,32,64,32,28,60,64,48,64,60,68,40,16,40,68,76,144,144,144,124,68,100,84,76,68,0,8,54,65,0,0,0,119,0,0,0,65,54,8,0,2,1,2,4,2,60,38,35,38,60,30,161,161,97,18,58,64,64,32,122,56,84,84,85,89,33,85,85,121,65,34,84,84,120,66,33,85,84,120,64,32,84,85,121,64,12,30,82,114,18,57,85,85,85,89,57,84,84,84,89,57,85,84,84,88,0,0,69,124,65,0,2,69,125,66,0,1,69,124,64,125,18,17,18,125,240,40,37,40,240,124,84,85,69,0,32,84,84,124,84,124,10,9,127,73,50,73,73,73,50,58,68,68,68,58,50,74,72,72,48,58,65,65,33,122,58,66,64,32,120,0,157,160,160,125,61,66,66,66,61,61,64,64,64,61,60,36,255,36,36,72,126,73,67,102,43,47,252,47,43,255,9,41,246,32,192,136,126,9,3,32,84,84,121,65,0,0,68,125,65,48,72,72,74,50,56,64,64,34,122,0,122,10,10,114,125,13,25,49,125,38,41,41,47,40,38,41,41,41,38,48,72,77,64,32,56,8,8,8,8,8,8,8,8,56,47,16,200,172,186,47,16,40,52,250,0,0,123,0,0,8,20,42,20,34,34,20,42,20,8,85,0,85,0,85,170,85,170,85,170,255,85,255,85,255,0,0,0,255,0,16,16,16,255,0,20,20,20,255,0,16,16,255,0,255,16,16,240,16,240,20,20,20,252,0,20,20,247,0,255,0,0,255,0,255,20,20,244,4,252,20,20,23,16,31,16,16,31,16,31,20,20,20,31,0,16,16,16,240,0,0,0,0,31,16,16,16,16,31,16,16,16,16,240,16,0,0,0,255,16,16,16,16,16,16,16,16,16,255,16,0,0,0,255,20,0,0,255,0,255,0,0,31,16,23,0,0,252,4,244,20,20,23,16,23,20,20,244,4,244,0,0,255,0,247,20,20,20,20,20,20,20,247,0,247,20,20,20,23,20,16,16,31,16,31,20,20,20,244,20,16,16,240,16,240,0,0,31,16,31,0,0,0,31,20,0,0,0,252,20,0,0,240,16,240,16,16,255,16,255,20,20,20,255,20,16,16,16,31,0,0,0,0,240,16,255,255,255,255,255,240,240,240,240,240,255,255,255,0,0,0,0,0,255,255,15,15,15,15,15,56,68,68,56,68,252,74,74,74,52,126,2,2,6,6,2,126,2,126,2,99,85,73,65,99,56,68,68,60,4,64,126,32,30,32,6,2,126,2,2,153,165,231,165,153,28,42,73,42,28,76,114,1,114,76,48,74,77,77,48,48,72,120,72,48,188,98,90,70,61,62,73,73,73,0,126,1,1,1,126,42,42,42,42,42,68,68,95,68,68,64,81,74,68,64,64,68,74,81,64,0,0,255,1,3,224,128,255,0,0,8,8,107,107,8,54,18,54,36,54,0,6,9,9,6,0,0,24,24,0,0,0,16,16,0,48,64,255,1,1,0,31,1,1,30,0,25,29,23,18,0,60,60,60,60,0,0,0,0,0];          // the 5x7 font of the screen library (256 characters x 5 columns)
+const TEMPLATE = "#pragma once\n// Look of the round 240x240 screen. Every number here can be edited visually in esp32/theme-editor.html,\n// which saves this same file. Colors are 0xRRGGBB, sizes are text magnification (1 = 6x8 px per letter),\n// positions are pixels (screen is 240x240, centre at 120,120; \"DY\" = pixels below the sign centre).\n\n// ---- colors ----\n#define COL_BG              0x0A0E14   // screen background (corners, hidden by the round glass)\n#define COL_SIGN_FACE       0xFFFFFF   // inside of the round sign\n#define COL_RING            0xD62020   // sign ring\n#define COL_RING_UNKNOWN    0x78808C   // sign ring when there is no limit / message\n#define COL_LIMIT_TEXT      0x000000   // the street's speed limit\n#define COL_MUTED_TEXT      0x78808C   // EST, NO GPS and other messages\n#define COL_SPEED_TEXT      0x000000   // your car's speed\n#define COL_UNIT_TEXT       0x78808C   // km/h\n#define COL_SAT_TEXT        0x000000   // SAT 3/9\n#define COL_BAR_OK          0x28A046   // signal bars, 4+ satellites in use\n#define COL_BAR_WARN        0xE69600   // signal bars, fewer than 4\n#define COL_BAR_EMPTY       0x78808C   // empty bar outline\n\n// ---- flashing when over the limit (inside of the sign flips between its normal look and this one) ----\n#define COL_FLASH_FACE      0xD62020   // inside of the sign during the red flash\n#define COL_FLASH_TEXT      0xFFFFFF   // all numbers and text during the red flash\n#define FLASH_ON_MS         350        // how long it stays red\n#define FLASH_OFF_MS        350        // how long it stays white\n\n// ---- the round sign ----\n#define SIGN_CX             120\n#define SIGN_CY             120\n#define SIGN_R_OUT          120        // 120 = ring reaches the edge of the screen\n#define SIGN_R_IN           102\n#define DASH_COUNT          24         // dashes in the ring when the limit is an estimate\n#define DASH_LEN_DEG        10         // length of each dash, degrees (360 / DASH_COUNT = no gap)\n#define DASH_START_DEG      0\n\n// ---- street limit (centre) ----\n#define LIMIT_SIZE_2DIGIT   9\n#define LIMIT_SIZE_3DIGIT   6\n#define LIMIT_DY            -28\n#define EST_SIZE            2\n#define EST_DY              -82\n#define TXT_EST             \"EST\"\n\n// ---- your car's speed (under the limit, inside the sign) ----\n#define SPEED_CX            120\n#define SPEED_Y             158\n#define SPEED_SIZE          4\n#define UNIT_CX             120\n#define UNIT_Y              188\n#define UNIT_SIZE           2\n#define TXT_UNIT            \"km/h\"\n\n// ---- messages inside the sign ----\n#define MSG_SIZE            3\n#define MSG_DY_SIMPLE       -20        // NO SD / NO MAP / OFF MAP\n#define MSG_DY_SEARCH       -30        // NO GPS / NO DATA (leaves room for the satellite info)\n#define TXT_UNKNOWN         \"--\"\n#define TXT_NO_SD           \"NO SD\"\n#define TXT_NO_MAP          \"NO MAP\"\n#define TXT_NO_GPS          \"NO GPS\"\n#define TXT_NO_DATA         \"NO DATA\"\n#define TXT_OFF_MAP         \"OFF MAP\"\n#define TXT_CHECK1          \"CHECK\"\n#define TXT_CHECK2          \"WIRES\"\n#define CHECK_SIZE          2\n#define CHECK1_DY           6\n#define CHECK2_DY           28\n\n// ---- satellites (shown under NO GPS) ----\n#define TXT_SAT_PREFIX      \"SAT\"\n#define SAT_TEXT_SIZE       2\n#define SAT_TEXT_DY         6\n#define BAR_X0              -22        // left edge of the first bar, from the sign centre\n#define BAR_STEP            12\n#define BAR_W               8\n#define BAR_BASE_DY         56         // bottom of the bars\n#define BAR_H0              4\n#define BAR_H_STEP          4\n";     // esp32/speed_limit/theme.h
+
+// ---- Arabic names for each setting: [label, min, max] (min/max only for numbers) ----
+const LABELS = {
+  COL_BG:['خلفية الشاشة (الزوايا، ما تظهر)'], COL_SIGN_FACE:['وجه الدائرة (الأبيض)'], COL_RING:['الإطار'], COL_RING_UNKNOWN:['الإطار عند عدم وجود حد'],
+  COL_LIMIT_TEXT:['رقم حد الشارع'], COL_MUTED_TEXT:['النصوص الرمادية (EST و NO GPS)'], COL_SPEED_TEXT:['رقم سرعة السيارة'],
+  COL_UNIT_TEXT:['كلمة km/h'], COL_SAT_TEXT:['نص الأقمار SAT'],
+  COL_BAR_OK:['أعمدة الإشارة (4+ أقمار)'], COL_BAR_WARN:['أعمدة الإشارة (أقل من 4)'], COL_BAR_EMPTY:['العمود الفارغ'],
+  COL_FLASH_FACE:['وجه الدائرة وقت الفلاش (الأحمر)'], COL_FLASH_TEXT:['الأرقام والنصوص وقت الفلاش'],
+  FLASH_ON_MS:['مدة بقاء الأحمر (ملي ثانية)',50,2000], FLASH_OFF_MS:['مدة بقاء الأبيض (ملي ثانية)',50,2000],
+  SIGN_CX:['مركز الدائرة X',0,239], SIGN_CY:['مركز الدائرة Y',0,239], SIGN_R_OUT:['نصف القطر الخارجي (120 = حافة الشاشة)',10,120], SIGN_R_IN:['نصف القطر الداخلي',5,119],
+  DASH_COUNT:['عدد الشرطات (حد تقديري)',2,60], DASH_LEN_DEG:['طول الشرطة بالدرجات',1,180], DASH_START_DEG:['زاوية بداية الشرطات',0,359],
+  LIMIT_SIZE_2DIGIT:['حجم رقم الحد (خانتين)',1,12], LIMIT_SIZE_3DIGIT:['حجم رقم الحد (3 خانات)',1,12], LIMIT_DY:['مكان رقم الحد (عمودي)',-110,110],
+  EST_SIZE:['حجم كلمة EST',1,6], EST_DY:['مكان كلمة EST',-110,110], TXT_EST:['نص EST'],
+  SPEED_CX:['سرعة السيارة: أفقي',0,239], SPEED_Y:['سرعة السيارة: عمودي',0,239], SPEED_SIZE:['سرعة السيارة: الحجم',1,10],
+  UNIT_CX:['km/h: أفقي',0,239], UNIT_Y:['km/h: عمودي',0,239], UNIT_SIZE:['km/h: الحجم',1,6], TXT_UNIT:['نص الوحدة'],
+  MSG_SIZE:['حجم الرسائل',1,8], MSG_DY_SIMPLE:['مكان الرسائل البسيطة',-110,110], MSG_DY_SEARCH:['مكان NO GPS',-110,110],
+  TXT_UNKNOWN:['نص «بدون حد»'], TXT_NO_SD:['نص NO SD'], TXT_NO_MAP:['نص NO MAP'], TXT_NO_GPS:['نص NO GPS'],
+  TXT_NO_DATA:['نص NO DATA'], TXT_OFF_MAP:['نص OFF MAP'], TXT_CHECK1:['نص CHECK'], TXT_CHECK2:['نص WIRES'],
+  CHECK_SIZE:['حجم CHECK / WIRES',1,6], CHECK1_DY:['مكان CHECK',-110,110], CHECK2_DY:['مكان WIRES',-110,110],
+  TXT_SAT_PREFIX:['كلمة SAT'], SAT_TEXT_SIZE:['حجم SAT',1,6], SAT_TEXT_DY:['مكان SAT',-110,110],
+  BAR_X0:['موضع أول عمود (أفقي)',-80,80], BAR_STEP:['المسافة بين الأعمدة',2,40], BAR_W:['عرض العمود',1,30],
+  BAR_BASE_DY:['قاعدة الأعمدة (عمودي)',-110,110], BAR_H0:['ارتفاع أول عمود',1,40], BAR_H_STEP:['زيادة الارتفاع لكل عمود',0,20]
+};
+const SECTIONS = { 'colors':'الألوان', 'flashing':'الفلاش عند تجاوز الحد', 'the round sign':'الدائرة والإطار', 'street limit':'حد الشارع (النص)',
+  'your car':'سرعة السيارة (تحت حد الشارع)', 'messages':'الرسائل داخل الدائرة', 'satellites':'الأقمار (تحت NO GPS)' };
+const secName = s => { for (const k in SECTIONS) if (s.startsWith(k)) return SECTIONS[k]; return s; };
+
+// ---- parse theme.h ----
+const LINE_RE = /^(#define\s+)(\w+)(\s+)(0x[0-9A-Fa-f]{6}|-?\d+|"[^"]*")(\s*(?:\/\/\s*(.*))?)$/;
+function parseTheme(text) {
+  const lines = text.split(/\r?\n/), items = []; let section = '';
+  lines.forEach((ln, i) => {
+    let m = ln.match(/^\/\/ ---- (.+?) ----/);
+    if (m) { section = m[1]; return; }
+    m = ln.match(LINE_RE);
+    if (m) items.push({ line: i, name: m[2], raw: m[4], comment: m[6] || '', section });
+  });
+  return { lines, items };
+}
+const base = parseTheme(TEMPLATE);
+const DEFAULTS = {}, V = {}, TYPE = {};
+for (const it of base.items) {
+  if (it.raw.startsWith('"')) { TYPE[it.name] = 'text'; DEFAULTS[it.name] = it.raw.slice(1, -1); }
+  else if (it.raw.startsWith('0x')) { TYPE[it.name] = 'color'; DEFAULTS[it.name] = parseInt(it.raw, 16); }
+  else { TYPE[it.name] = 'num'; DEFAULTS[it.name] = parseInt(it.raw, 10); }
+  V[it.name] = DEFAULTS[it.name];
+}
+const hex6 = n => '#' + (n & 0xFFFFFF).toString(16).padStart(6, '0');
+function exportTheme() {
+  const out = base.lines.slice();
+  for (const it of base.items) {
+    const v = V[it.name], tok = TYPE[it.name] === 'text' ? '"' + v + '"' : TYPE[it.name] === 'color' ? '0x' + (v & 0xFFFFFF).toString(16).toUpperCase().padStart(6, '0') : String(v);
+    out[it.line] = out[it.line].replace(LINE_RE, (m, a, name, sp) => a + name + sp + tok + m.slice((a + name + sp + it.raw).length));
+  }
+  return out.join('\n');
+}
+
+// ---- a tiny software screen that draws exactly like the device ----
+const W = 240;
+const px = new Uint32Array(W * W);
+const q565 = c => { const r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
+  const r5 = r >> 3, g6 = g >> 2, b5 = b >> 3;   // what the 16-bit screen can really show
+  return (0xFF000000 | (((b5 << 3) | (b5 >> 2)) << 16) | (((g6 << 2) | (g6 >> 4)) << 8) | ((r5 << 3) | (r5 >> 2))) >>> 0; };
+function dot(x, y, c) { if (x >= 0 && y >= 0 && x < W && y < W) px[y * W + x] = c; }
+function fillRect(x, y, w, h, c) { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) dot(x + i, y + j, c); }
+function drawRect(x, y, w, h, c) { for (let i = 0; i < w; i++) { dot(x + i, y, c); dot(x + i, y + h - 1, c); } for (let j = 0; j < h; j++) { dot(x, y + j, c); dot(x + w - 1, y + j, c); } }
+function fillCircle(cx, cy, r, c) { for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) if (x * x + y * y <= r * r + r) dot(cx + x, cy + y, c); }
+function fillArc(cx, cy, r1, r2, start, end, c) {
+  if (r1 < r2) [r1, r2] = [r2, r1];
+  const ir = r2 - 1, ir2 = ir * ir + ir, or2 = r1 * r1 + r1;
+  const norm = a => ((a % 360) + 360) % 360, s = norm(start), e = norm(end);
+  for (let y = -r1; y <= r1; y++) for (let x = -r1; x <= r1; x++) {
+    const d = x * x + y * y; if (d < ir2 || d >= or2) continue;
+    const a = norm(Math.atan2(y, x) * 180 / Math.PI);
+    if (s <= e ? (a >= s && a <= e) : (a >= s || a <= e)) dot(cx + x, cy + y, c);
+  }
+}
+function drawText(str, cx, cy, size, fg, bg) {
+  const w = 6 * size * str.length, h = 8 * size; let x0 = cx - Math.trunc(w / 2), y0 = cy - Math.trunc(h / 2);
+  for (const ch of str) {
+    const code = ch.charCodeAt(0) & 255;
+    fillRect(x0 + 5 * size, y0, size, h, bg);                    // spacing column
+    for (let i = 0; i < 5; i++) { const col = FONT[code * 5 + i];
+      for (let j = 0; j < 8; j++) fillRect(x0 + i * size, y0 + j * size, size, size, (col >> j) & 1 ? fg : bg); }
+    x0 += 6 * size;
+  }
+}
+const col = n => q565(V[n]);
+
+// state: {limit, est, speed, msg, used, view, flash}; msg: none | nosd | nomap | nogps | nodata | offmap
+function drawScreen(st) {
+  const limit = st.limit, flash = !!st.flash;
+  const face = q565(flash ? V.COL_FLASH_FACE : V.COL_SIGN_FACE);
+  const tLimit = flash ? col('COL_FLASH_TEXT') : col('COL_LIMIT_TEXT'), tMuted = flash ? col('COL_FLASH_TEXT') : col('COL_MUTED_TEXT');
+  px.fill(col('COL_BG'));
+  const ring = limit === 0 ? col('COL_RING_UNKNOWN') : col('COL_RING');
+  if (st.est && limit) {
+    for (let i = 0; i < V.DASH_COUNT; i++) { const a = V.DASH_START_DEG + i * 360 / V.DASH_COUNT; fillArc(V.SIGN_CX, V.SIGN_CY, V.SIGN_R_IN, V.SIGN_R_OUT, a, a + V.DASH_LEN_DEG, ring); }
+  } else fillCircle(V.SIGN_CX, V.SIGN_CY, V.SIGN_R_OUT, ring);
+  fillCircle(V.SIGN_CX, V.SIGN_CY, V.SIGN_R_IN, face);
+  const T = (s, dy, size, fg) => drawText(s, V.SIGN_CX, V.SIGN_CY + dy, size, fg, face);
+  if (limit) {
+    T(String(limit), V.LIMIT_DY, limit >= 100 ? V.LIMIT_SIZE_3DIGIT : V.LIMIT_SIZE_2DIGIT, tLimit);
+    if (st.est) T(V.TXT_EST, V.EST_DY, V.EST_SIZE, tMuted);
+  } else {
+    const names = { nosd:'TXT_NO_SD', nomap:'TXT_NO_MAP', nogps:'TXT_NO_GPS', nodata:'TXT_NO_DATA', offmap:'TXT_OFF_MAP' };
+    const m = names[st.msg] ? V[names[st.msg]] : V.TXT_UNKNOWN, muted = col('COL_MUTED_TEXT');
+    if (st.msg === 'nogps' || st.msg === 'nodata') {
+      T(m, V.MSG_DY_SEARCH, V.MSG_SIZE, muted);
+      if (st.msg === 'nodata') { T(V.TXT_CHECK1, V.CHECK1_DY, V.CHECK_SIZE, muted); T(V.TXT_CHECK2, V.CHECK2_DY, V.CHECK_SIZE, muted); }
+      else {
+        T(V.TXT_SAT_PREFIX + ' ' + st.used + '/' + st.view, V.SAT_TEXT_DY, V.SAT_TEXT_SIZE, col('COL_SAT_TEXT'));
+        const bars = st.used >= 9 ? 4 : st.used >= 6 ? 3 : st.used >= 4 ? 2 : st.used >= 1 ? 1 : 0;
+        for (let i = 0; i < 4; i++) { const hh = V.BAR_H0 + i * V.BAR_H_STEP, x = V.SIGN_CX + V.BAR_X0 + i * V.BAR_STEP, y = V.SIGN_CY + V.BAR_BASE_DY - hh;
+          if (i < bars) fillRect(x, y, V.BAR_W, hh, col(st.used >= 4 ? 'COL_BAR_OK' : 'COL_BAR_WARN')); else drawRect(x, y, V.BAR_W, hh, col('COL_BAR_EMPTY')); }
+      }
+    } else if (st.msg === 'none') T(m, V.LIMIT_DY, V.LIMIT_SIZE_2DIGIT, muted);
+    else T(m, V.MSG_DY_SIMPLE, V.MSG_SIZE, muted);
+  }
+  // your speed goes under the limit, except while there is no GPS fix or no map
+  if (!['nogps', 'nodata', 'nosd', 'nomap'].includes(st.msg)) {
+    drawText(String(st.speed), V.SPEED_CX, V.SPEED_Y, V.SPEED_SIZE, flash ? col('COL_FLASH_TEXT') : col('COL_SPEED_TEXT'), face);
+    drawText(V.TXT_UNIT, V.UNIT_CX, V.UNIT_Y, V.UNIT_SIZE, flash ? col('COL_FLASH_TEXT') : col('COL_UNIT_TEXT'), face);
+  }
+}
+function paint(canvas, st) {
+  drawScreen(st);
+  const ctx = canvas.getContext('2d'), img = ctx.createImageData(W, W);
+  new Uint32Array(img.data.buffer).set(px); ctx.putImageData(img, 0, 0);
+}
+
+// ---- the screens the device can show ----
+const STATES = [
+  { n:'حد مسجّل 60', limit:60, est:false, speed:48, msg:'none', used:9, view:14 },
+  { n:'حد تقديري 60', limit:60, est:true, speed:48, msg:'none', used:9, view:14 },
+  { n:'تجاوز: الطور الأبيض', limit:80, est:false, speed:92, msg:'none', used:9, view:14 },
+  { n:'تجاوز: الطور الأحمر', limit:80, est:false, speed:92, msg:'none', used:9, view:14, flash:true },
+  { n:'تجاوز تقديري: أحمر', limit:60, est:true, speed:75, msg:'none', used:9, view:14, flash:true },
+  { n:'حد 3 خانات', limit:120, est:false, speed:112, msg:'none', used:9, view:14 },
+  { n:'3 خانات: الطور الأحمر', limit:120, est:false, speed:135, msg:'none', used:9, view:14, flash:true },
+  { n:'بدون حد', limit:0, est:false, speed:35, msg:'none', used:9, view:14 },
+  { n:'NO GPS (3 أقمار)', limit:0, est:false, speed:0, msg:'nogps', used:3, view:8 },
+  { n:'NO GPS (7 أقمار)', limit:0, est:false, speed:0, msg:'nogps', used:7, view:14 },
+  { n:'NO GPS (0 أقمار)', limit:0, est:false, speed:0, msg:'nogps', used:0, view:0 },
+  { n:'NO DATA', limit:0, est:false, speed:0, msg:'nodata', used:0, view:0 },
+  { n:'OFF MAP', limit:0, est:false, speed:50, msg:'offmap', used:9, view:14 },
+  { n:'NO MAP', limit:0, est:false, speed:0, msg:'nomap', used:0, view:0 },
+  { n:'NO SD', limit:0, est:false, speed:0, msg:'nosd', used:0, view:0 }
+];
+let cur = 0;
+
+// ---- UI ----
+const $ = id => document.getElementById(id);
+const main = $('main'), thumbs = $('thumbs');
+STATES.forEach((s, i) => { const d = document.createElement('div'); d.className = 'thumb'; d.innerHTML = '<canvas width="240" height="240"></canvas>' + s.n; d.onclick = () => { cur = i; redraw(); }; thumbs.appendChild(d); s.el = d; s.cv = d.firstChild; });
+function redraw() {
+  paint(main, STATES[cur]); $('stateName').textContent = STATES[cur].n;
+  STATES.forEach((s, i) => { paint(s.cv, s); s.el.classList.toggle('on', i === cur); });
+  try { localStorage.setItem('speedlimit-theme-v2', JSON.stringify(V)); } catch (e) {}
+  document.querySelectorAll('.ctl').forEach(el => el.classList.toggle('changed', V[el.dataset.k] !== DEFAULTS[el.dataset.k]));
+}
+function setV(k, v, from) { V[k] = v; redraw(); syncControls(from); }
+const ctlEls = {};
+function buildControls() {
+  const box = $('controls'); box.innerHTML = ''; let det = null, last = null, n = 0;
+  for (const it of base.items) {
+    if (it.section !== last) { det = document.createElement('details'); if (n++ === 0) det.open = true;
+      det.innerHTML = '<summary>' + secName(it.section) + '</summary>'; box.appendChild(det); last = it.section; }
+    const k = it.name, lab = LABELS[k] || [k], t = TYPE[k];
+    const row = document.createElement('div'); row.className = 'ctl'; row.dataset.k = k;
+    row.innerHTML = '<label>' + lab[0] + '</label><div class="inp"></div><div class="hint">' + k + (it.comment ? ' — ' + it.comment : '') + '</div>';
+    const inp = row.querySelector('.inp'); ctlEls[k] = {};
+    if (t === 'color') {
+      const c = document.createElement('input'); c.type = 'color'; const h = document.createElement('input'); h.type = 'text'; h.className = 'hex'; h.style.width = '78px';
+      c.oninput = () => setV(k, parseInt(c.value.slice(1), 16), c);
+      h.onchange = () => { const m = h.value.trim().replace('#', '').match(/^[0-9a-fA-F]{6}$/); if (m) setV(k, parseInt(m[0], 16)); else syncControls(); };
+      inp.append(c, h); ctlEls[k] = { c, h };
+    } else if (t === 'num') {
+      const mn = lab[1] ?? -300, mx = lab[2] ?? 600;
+      const r = document.createElement('input'); r.type = 'range'; r.min = mn; r.max = mx; const nb = document.createElement('input'); nb.type = 'number';
+      r.oninput = () => setV(k, +r.value, r); nb.oninput = () => { if (nb.value !== '' && !isNaN(+nb.value)) setV(k, Math.round(+nb.value), nb); };
+      inp.append(r, nb); ctlEls[k] = { r, nb };
+    } else {
+      const x = document.createElement('input'); x.type = 'text'; x.maxLength = 12;
+      x.oninput = () => { x.value = x.value.replace(/[^\x20-\x7E]/g, '').replace(/["\\]/g, ''); setV(k, x.value, x); };
+      inp.append(x); ctlEls[k] = { x };
+    }
+    det.appendChild(row);
+  }
+  syncControls();
+}
+function syncControls(skip) {
+  for (const k in ctlEls) { const e = ctlEls[k], v = V[k];
+    if (e.c) { if (e.c !== skip) e.c.value = hex6(v); if (e.h !== document.activeElement) e.h.value = hex6(v).toUpperCase(); }
+    if (e.r) { if (e.r !== skip) e.r.value = v; if (e.nb !== skip) e.nb.value = v; }
+    if (e.x && e.x !== skip) e.x.value = v; }
+}
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 1800); }
+
+$('save').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([exportTheme()], { type: 'text/plain' })); a.download = 'theme.h'; a.click(); toast('تم حفظ theme.h في مجلد التنزيلات'); };
+$('copy').onclick = async () => { try { await navigator.clipboard.writeText(exportTheme()); toast('تم النسخ'); } catch (e) { $('paste').value = exportTheme(); $('dlg').showModal(); } };
+$('reset').onclick = () => { if (confirm('ترجع كل القيم للأصلي؟')) { Object.assign(V, DEFAULTS); redraw(); syncControls(); } };
+$('import').onclick = () => { $('paste').value = ''; $('dlg').showModal(); };
+$('file').onchange = e => { const f = e.target.files[0]; if (f) f.text().then(t => { $('paste').value = t; }); };
+$('doImport').onclick = () => { const p = parseTheme($('paste').value); let n = 0;
+  for (const it of p.items) if (it.name in V) { V[it.name] = TYPE[it.name] === 'text' ? it.raw.slice(1, -1) : TYPE[it.name] === 'color' ? parseInt(it.raw, 16) : parseInt(it.raw, 10); n++; }
+  redraw(); syncControls(); toast('تم استيراد ' + n + ' قيمة'); };
+$('shape').onclick = () => { $('wrap').classList.toggle('square'); document.querySelectorAll('.thumb canvas').forEach(c => c.style.borderRadius = $('wrap').classList.contains('square') ? '0' : '50%'); };
+main.onmousemove = e => { const r = main.getBoundingClientRect(), x = Math.floor((e.clientX - r.left) / r.width * W), y = Math.floor((e.clientY - r.top) / r.height * W);
+  $('readout').textContent = 'x = ' + x + '   y = ' + y + '   (من مركز اللوحة: dx = ' + (x - V.SIGN_CX) + ', dy = ' + (y - V.SIGN_CY) + ')'; };
+main.onmouseleave = () => { $('readout').textContent = 'حرّك الماوس على الشاشة لمعرفة الإحداثيات (x, y)'; };
+
+try { const saved = JSON.parse(localStorage.getItem('speedlimit-theme-v2') || 'null'); if (saved) for (const k in saved) if (k in V && typeof saved[k] === typeof V[k]) V[k] = saved[k]; } catch (e) {}
+buildControls(); redraw();
+</script>
+</body>
+</html>
