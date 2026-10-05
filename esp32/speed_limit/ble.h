@@ -159,9 +159,16 @@ static void bleBegin() {
   txChar = svc->createCharacteristic(TX_UUID, NIMBLE_PROPERTY::NOTIFY);
   txChar->setCallbacks(&txCb);
   svc->start();
+  // The 128-bit service id takes most of the 31 bytes of the advertisement, so the name goes in the scan response.
+  // (Phones that filter by service id then find the device, and the name still shows in device lists.)
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
-  adv->addServiceUUID(SVC_UUID);
-  adv->setName("SpeedLimit");
+  NimBLEAdvertisementData advData, scanData;
+  advData.setFlags(0x06);                      // general discoverable, no classic Bluetooth
+  advData.addServiceUUID(SVC_UUID);
+  scanData.setName("SpeedLimit");
+  adv->setAdvertisementData(advData);
+  adv->setScanResponseData(scanData);
+  adv->enableScanResponse(true);
   adv->start();
 }
 

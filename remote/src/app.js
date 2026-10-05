@@ -15,7 +15,16 @@ class BleTransport {
   async connect(pick) {
     await BleClient.initialize({ androidNeverForLocation: true });
     let id = store.get('deviceId');
-    if (pick || !id) { const d = await BleClient.requestDevice({ services: [SVC] }); id = d.deviceId; store.set('deviceId', id); }
+    if (pick || !id) {
+      let d;
+      try { d = await BleClient.requestDevice({ services: [SVC] }); }
+      catch (e) {
+        if (!/no device/i.test(String(e && e.message || e))) throw e;
+        setStatus('ما لقيت القطعة بالبحث السريع. اختر SpeedLimit من القائمة…');
+        d = await BleClient.requestDevice({});         // no filter: the list shows every Bluetooth device nearby
+      }
+      id = d.deviceId; store.set('deviceId', id);
+    }
     await BleClient.connect(id, () => this.onClose && this.onClose(), { timeout: 10000 });
     this.id = id;
     await BleClient.startNotifications(id, SVC, TX, v => {
@@ -88,7 +97,7 @@ async function connect(pick) {
     const t = tr; tr = null; try { t && await t.disconnect(); } catch (x) {}
     $('conBtn').disabled = false; dot('');
     const m = String(e && e.message || e);
-    setStatus(/cancel|dismiss/i.test(m) ? '' : 'ما قدرت أتصل بالقطعة. تأكد أنها شغّالة وقريبة، والبلوتوث شغّال.');
+    setStatus(/cancel|dismiss/i.test(m) ? '' : 'ما قدرت أتصل بالقطعة. تأكد أنها شغّالة وقريبة، والبلوتوث وصلاحية «الأجهزة القريبة» شغّالين.\n(' + m.slice(0, 80) + ')');
     if (wantConnected && !pick && store.get('deviceId')) scheduleRetry();
   }
 }
