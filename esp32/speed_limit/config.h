@@ -29,3 +29,14 @@
 
 // Hold this button while powering on to run the fake drive (no GPS or SD needed)
 #define DEMO_PIN   0     // the BOOT button
+
+// The car's speedometer reads about 5 km/h higher than the real GPS speed, so we add this to what we show
+#define SPEED_OFFSET_KMH 5
+
+// How many km/h over a GUESSED limit (road without a real limit in the map) before the screen turns red
+#define EST_TOLERANCE 10
+
+// Bluetooth link to the phone app (remote/). The app must send this PIN before it can change anything;
+// the PIN can be changed from the app, and the new one is kept in the chip.
+#define BLE_PIN "1234"
+#define FW_VERSION "2.0-b"

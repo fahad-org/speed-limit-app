@@ -1,0 +1,9 @@
+{
+  "appId": "com.fahad.speedlimit.remote",
+  "appName": "قطعة حد السرعة",
+  "webDir": "www",
+  "backgroundColor": "#0A0E14",
+  "android": {
+    "backgroundColor": "#0A0E14"
+  }
+}

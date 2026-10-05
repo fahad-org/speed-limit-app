@@ -8,6 +8,7 @@
 #include "config.h"
 #include "types.h"
 #include "theme.h"
+#include "settings.h"
 #if USE_SD
 #include <SD.h>
 #define MAP_FS SD
@@ -17,7 +18,6 @@
 #endif
 
 // ---- same numbers as index.html ----
-static const double TOLERANCE = 2;   // km/h above the limit before alerting (GPS jitter)
 static const double STICK_M = 18;    // stay on current road while within this distance
 static const double MATCH_M = 40;    // farthest a road can be and still count as the one you are on
 static const uint32_t REPEAT_MS = 6000;
@@ -47,19 +47,20 @@ static bool loadRoads() {
   return true;
 }
 
-// Reads the segments of the grid cell around p into segs[]. Returns -1 outside the map.
-static int segsAt(double lat, double lon) {
+// Reads the segments of the grid cell around p into buf[] (room for maxN). Returns -1 outside the map.
+static int readCell(double lat, double lon, Seg* buf, int maxN) {
   long r = floor((lat * 1e6 - rdSouth) / rdCell), c = floor((lon * 1e6 - rdWest) / rdCell);
   if (r < 0 || c < 0 || r >= rdRows || c >= rdCols) return -1;
   uint32_t idx[2];
   roadsFile.seek(32 + ((uint32_t)r * rdCols + c) * 4);
   if (roadsFile.read((uint8_t*)idx, 8) != 8) return -1;
   uint32_t n = idx[1] > idx[0] ? idx[1] - idx[0] : 0;
-  if (n > MAX_SEGS) n = MAX_SEGS;
+  if (n > (uint32_t)maxN) n = maxN;
   roadsFile.seek(rdRecStart + idx[0] * 20);
-  if (n && roadsFile.read((uint8_t*)segs, n * 20) != (int)(n * 20)) return -1;
+  if (n && roadsFile.read((uint8_t*)buf, n * 20) != (int)(n * 20)) return -1;
   return (int)n;
 }
+static int segsAt(double lat, double lon) { return readCell(lat, lon, segs, MAX_SEGS); }
 
 // ---- geometry (metres) ----
 static const double R_EARTH = 6371000.0;
@@ -75,6 +76,9 @@ static bool sameSeg(const Seg& a, const Seg& b) {
   return a.lat1 == b.lat1 && a.lon1 == b.lon1 && a.lat2 == b.lat2 && a.lon2 == b.lon2;
 }
 
+static void pumpGps();   // feeds waiting GPS bytes to the parser (defined with the GPS code)
+#include "edits.h"
+
 // ---- state ----
 enum Msg : uint8_t { MSG_NONE, MSG_NO_SD, MSG_NO_MAP, MSG_NO_GPS, MSG_OUT_OF_MAP, MSG_NO_DATA };
 static int satsUsed = 0, satsView = 0;   // satellites used for the fix / visible in the sky
@@ -87,6 +91,16 @@ static uint32_t lastAlert = 0;
 static bool haveCur = false;
 static Seg cur;
 static bool demo = false;
+static uint32_t lastKey = 0xFFFFFFFF;   // what the screen shows now; set to 0xFFFFFFFF to force a redraw
+
+// Limit shown for a road piece: your correction from the phone, else the map's limit, else a guess from the road type
+static void setLimitFrom(const Seg& s) {
+  uint8_t ov = edLookup(s);
+  if (ov) { limitKmh = ov; estimated = false; }
+  else if (s.limit) { limitKmh = s.limit; estimated = false; }
+  else if (s.cls < NUM_CLASSES) { limitKmh = DEFAULT_LIMITS[s.cls]; estimated = true; }
+  else { limitKmh = 0; estimated = false; }
+}
 
 // Nearest road, preferring roads that point the way you are driving (same scoring as updateRoad() in index.html)
 static void updateRoad(double lat, double lon, bool headingOk, double heading) {
@@ -110,9 +124,7 @@ static void updateRoad(double lat, double lon, bool headingOk, double heading) {
   if (curIdx >= 0 && curD < STICK_M && curScore - bestScore < 8) best = curIdx;
   if (best < 0) { haveCur = false; limitKmh = 0; estimated = false; return; }
   cur = segs[best]; haveCur = true;
-  if (cur.limit) { limitKmh = cur.limit; estimated = false; }
-  else if (cur.cls < NUM_CLASSES) { limitKmh = DEFAULT_LIMITS[cur.cls]; estimated = true; }
-  else { limitKmh = 0; estimated = false; }
+  setLimitFrom(cur);
 }
 
 // ---- alert ----
@@ -123,7 +135,8 @@ static void alertNow() {
 #endif
 }
 static void checkOver() {
-  bool now = limitKmh > 0 && speedKmh > limitKmh + TOLERANCE;
+  // a limit we only guessed from the road type gets more room, so a wrong guess does not nag you
+  bool now = limitKmh > 0 && speedKmh > limitKmh + (estimated ? S.estTol : S.tol);
   // An estimated limit only turns the screen red; no beep for a limit we are guessing
   if (now && !estimated && (!over || millis() - lastAlert > REPEAT_MS)) alertNow();
   over = now;
@@ -131,7 +144,9 @@ static void checkOver() {
 
 // ---- screen ---- (all look-and-feel numbers are in theme.h)
 static Arduino_DataBus* bus = new Arduino_ESP32SPI(TFT_DC, TFT_CS, TFT_SCK, TFT_MOSI, GFX_NOT_DEFINED, FSPI);
-static Arduino_GFX* gfx = new Arduino_GC9A01(bus, TFT_RST, 0 /*rotation*/, true /*IPS*/);
+static Arduino_GFX* panel = new Arduino_GC9A01(bus, TFT_RST, 0 /*rotation*/, true /*IPS*/);
+// Everything is drawn into this off-screen picture and sent to the panel in one go, so the screen never flickers
+static Arduino_Canvas* gfx = new Arduino_Canvas(240, 240, panel);
 #define C565(c) ((uint16_t)((((c) >> 8) & 0xF800) | (((c) >> 5) & 0x07E0) | (((c) >> 3) & 0x001F)))   // 0xRRGGBB -> RGB565
 
 static void text(const char* s, int cx, int cy, int size, uint32_t fg, uint32_t bg) {
@@ -204,11 +219,12 @@ static void drawAll(bool flash) {
     text(b, SPEED_CX, SPEED_Y, SPEED_SIZE, flash ? COL_FLASH_TEXT : COL_SPEED_TEXT, face);
     text(TXT_UNIT, UNIT_CX, UNIT_Y, UNIT_SIZE, flash ? COL_FLASH_TEXT : COL_UNIT_TEXT, face);
   }
+  gfx->flush();
 }
 // Redraws the whole screen whenever anything shown on it changes (about once a second while driving,
 // twice a second per flash while over the limit)
 static void render() {
-  static uint32_t lastKey = 0xFFFFFFFF; static int lastSpeed = -1, lastSat = -1;
+  static int lastSpeed = -1, lastSat = -1;
   bool flash = flashOn();
   uint32_t key = limitKmh | (estimated << 8) | (flash << 9) | (msg << 10);
   int sat = (msg == MSG_NO_GPS) ? (satsUsed | (satsView << 8)) : 0;   // satellites only matter on the NO GPS screen
@@ -219,8 +235,9 @@ static void render() {
 static TinyGPSPlus gps;
 // "Satellites in view" is field 3 of each constellation's GSV sentence (GPS, GLONASS, Galileo, BeiDou)
 static TinyGPSCustom viewGP(gps, "GPGSV", 3), viewGL(gps, "GLGSV", 3), viewGA(gps, "GAGSV", 3), viewGB(gps, "GBGSV", 3);
+static void pumpGps() { while (Serial1.available()) gps.encode(Serial1.read()); }
 static void readGps() {
-  while (Serial1.available()) gps.encode(Serial1.read());
+  pumpGps();
   static uint32_t lastFixMs = 0, lastChars = 0, lastCharMs = 0;
   if (gps.charsProcessed() != lastChars) { lastChars = gps.charsProcessed(); lastCharMs = millis(); }
   bool alive = millis() - lastCharMs < 3000;   // is the module sending anything at all?
@@ -229,7 +246,7 @@ static void readGps() {
   if (gps.location.isUpdated()) {
     lastFixMs = millis();
     double kmh = gps.speed.isValid() ? gps.speed.kmph() : 0;
-    speedKmh = kmh < 3 ? 0 : (int)round(kmh);
+    speedKmh = kmh < 3 ? 0 : (int)round(kmh) + S.offset;   // car speedometers read a bit high, so match them
     bool headingOk = gps.course.isValid() && speedKmh >= 15;
     bool accurate = !gps.hdop.isValid() || gps.hdop.hdop() < 6;   // roughly the "accuracy < 60 m" test in index.html
     if (accurate) updateRoad(gps.location.lat(), gps.location.lng(), headingOk, gps.course.deg());
@@ -239,6 +256,8 @@ static void readGps() {
     speedKmh = 0; limitKmh = 0; estimated = false; msg = alive ? MSG_NO_GPS : MSG_NO_DATA; over = false; haveCur = false;
   }
 }
+
+#include "ble.h"
 
 // ---- demo drive (hold BOOT at power-up): shows every kind of screen without GPS or SD ----
 static void runDemo() {
@@ -259,10 +278,11 @@ void setup() {
   Serial.begin(115200);
   pinMode(DEMO_PIN, INPUT_PULLUP);
   demo = digitalRead(DEMO_PIN) == LOW;
-  if (TFT_BL >= 0) { pinMode(TFT_BL, OUTPUT); digitalWrite(TFT_BL, HIGH); }
+  settingsLoad();
+  if (TFT_BL >= 0) { ledcAttach(TFT_BL, 5000, 8); applyBrightness(); }
   if (BUZZER_PIN >= 0) pinMode(BUZZER_PIN, OUTPUT);
   gfx->begin();
-  if (demo) { Serial.println("demo mode"); return; }
+  if (demo) { Serial.println("demo mode"); bleBegin(); return; }
 
 #if USE_SD
   static SPIClass sdSpi(HSPI);
@@ -276,12 +296,17 @@ void setup() {
   if (!mounted) {}
   else if (!loadRoads()) { msg = MSG_NO_MAP; Serial.println("roads.bin missing or bad"); }
   else Serial.printf("roads.bin ok: %u x %u cells\n", rdRows, rdCols);
+  if (mounted) { edLoad(); Serial.printf("corrections from the phone: %u\n", (unsigned)edRecords); }
+  bleBegin();
+  Serial.printf("bluetooth up, free heap %u\n", (unsigned)ESP.getFreeHeap());
+  Serial1.setRxBufferSize(4096);
   Serial1.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
 }
 
 void loop() {
   if (demo) runDemo();
   else if (msg != MSG_NO_SD && msg != MSG_NO_MAP) readGps();
+  bleLoop();
   render();
   delay(20);
 }

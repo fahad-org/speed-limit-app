@@ -1,0 +1,19 @@
+{
+  "name": "speed-limit-remote",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Phone app that talks to the ESP32 speed-limit device over Bluetooth",
+  "scripts": {
+    "build": "node scripts/build.mjs"
+  },
+  "dependencies": {
+    "@capacitor-community/bluetooth-le": "latest",
+    "@capacitor/android": "latest",
+    "@capacitor/core": "latest"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "latest",
+    "@capacitor/cli": "latest",
+    "esbuild": "latest"
+  }
+}

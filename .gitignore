@@ -5,3 +5,9 @@ ios/
 *.apk
 
 esp32/**/build/
+
+mapillary.key
+scripts/.mapillary-cache.json
+esp32/mapillary-signs.json
+esp32/road-names.json
+scripts/.osm-roads.json

@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>محرر السرعات - خريطة roads.bin</title>
+<style>
+  :root { --bg:#10151c; --panel:#18202b; --line:#2b3645; --text:#e8edf3; --muted:#8a97a8; --accent:#3aa0ff; --bad:#ff5a4d; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font-family: system-ui, "Segoe UI", Tahoma, sans-serif; overflow:hidden; }
+  #map { position:absolute; inset:0; display:block; cursor:grab; touch-action:none; }
+  #map.drag { cursor:grabbing; }
+  .box { position:absolute; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 14px; box-shadow:0 6px 24px #0008; }
+  #top { top:12px; right:12px; left:12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px 12px; }
+  #side { top:70px; right:12px; width:290px; max-height:calc(100% - 90px); overflow:auto; }
+  button { background:#223044; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:7px 12px; font:inherit; cursor:pointer; }
+  button:hover { background:#2b3d56; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#04121f; font-weight:700; }
+  button.warn { color:var(--bad); }
+  input[type=number], input[type=search] { background:#0d1219; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:7px 10px; font:inherit; width:100%; }
+  label { color:var(--muted); font-size:13px; }
+  .row { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0; }
+  .row button { flex:1 1 52px; padding:6px 4px; }
+  h3 { margin:0 0 6px; font-size:15px; }
+  #status { color:var(--muted); font-size:13px; margin-inline-start:auto; }
+  #big { font-size:42px; font-weight:800; line-height:1; }
+  .chip { display:inline-block; padding:2px 8px; border-radius:99px; background:#223044; font-size:12px; color:var(--muted); }
+  #legend { bottom:12px; left:12px; display:flex; gap:10px; flex-wrap:wrap; padding:8px 12px; font-size:12px; max-width:calc(100% - 24px); }
+  #legend i { display:inline-block; width:22px; height:6px; border-radius:3px; margin-inline-end:4px; vertical-align:middle; }
+  .hint { color:var(--muted); font-size:12px; line-height:1.6; }
+  #names { top:70px; left:12px; width:370px; max-height:calc(100% - 90px); overflow:auto; }
+  .nrow { display:grid; grid-template-columns:1fr 64px 58px; gap:4px 6px; align-items:center; padding:7px 0; border-bottom:1px solid var(--line); }
+  .nrow .nname { grid-column:1 / 4; font-weight:600; cursor:pointer; font-size:13px; }
+  .nrow .nname:hover { color:var(--accent); }
+  .nrow .nmeta { color:var(--muted); font-size:12px; }
+  .nrow input { padding:4px 6px; }
+  .nrow button { padding:4px 6px; }
+  @media (max-width:700px) { #side { top:auto; bottom:56px; left:12px; right:12px; width:auto; max-height:46%; } #legend { display:none; } }
+</style>
+</head>
+<body>
+<canvas id="map"></canvas>
+
+<div id="top" class="box">
+  <button id="open">فتح roads.bin…</button>
+  <button id="save" class="primary">حفظ roads.bin المعدّل</button>
+  <button id="tilesBtn">الخريطة تحت: شغّالة</button>
+  <button id="signsBtn" hidden>لوحات Mapillary: شغّالة</button>
+  <button id="applySigns" hidden>طبّق اللوحات على الشوارع</button>
+  <button id="namesBtn" hidden>الشوارع بالاسم</button>
+  <button id="locate">أين أنا؟</button>
+  <span id="count" class="chip"></span>
+  <span id="status">يحمّل…</span>
+  <input id="file" type="file" accept=".bin" hidden>
+</div>
+
+<div id="side" class="box">
+  <div id="none">
+    <h3>اضغط على أي شارع</h3>
+    <div class="hint">الشارع يتلوّن حسب سرعته. الخط المتقطع = سرعة تقديرية (ما لها حد في OpenStreetMap). اضغط الشارع وعدّل السرعة. السحب لتحريك الخريطة، والعجلة للتقريب.</div>
+  </div>
+  <div id="sel" hidden>
+    <h3>الشارع المحدد</h3>
+    <div id="sname" style="font-size:15px;font-weight:700;margin-bottom:6px;line-height:1.5"></div>
+    <div id="big">--</div>
+    <div class="row" style="margin-top:6px"><span class="chip" id="kind"></span><span class="chip" id="src"></span><span class="chip" id="len"></span></div>
+    <label for="lim">السرعة الجديدة (كم/س)</label>
+    <input id="lim" type="number" min="0" max="200" step="5">
+    <div class="row" id="quick"></div>
+    <div class="row">
+      <button id="apply" class="primary">تطبيق على هذا الشارع</button>
+    </div>
+    <div class="row">
+      <button id="applyView">على كل شوارع هذا النوع غير المحددة في الشاشة</button>
+    </div>
+    <div class="row">
+      <button id="reset" class="warn">إلغاء تعديلي</button>
+      <button id="clear">إغلاق</button>
+    </div>
+    <div class="hint">0 = بدون سرعة (يرجع للتقدير حسب النوع). التعديلات تنحفظ في المتصفح تلقائياً، واضغط «حفظ roads.bin المعدّل» لما تخلص.</div>
+  </div>
+</div>
+
+<div id="names" class="box" hidden>
+  <h3>الشوارع بالاسم <button id="namesClose" style="float:left;padding:2px 9px">×</button></h3>
+  <div class="hint" style="margin-bottom:6px">غيّر الرقم وانتبه إلى «تطبيق»: ينتقل الشارع كله (كل مقاطعه). الأكبر أولاً. اضغط الاسم لتشوفه على الخريطة.</div>
+  <input id="nsearch" type="search" placeholder="ابحث باسم الشارع…">
+  <div id="nlist"></div>
+</div>
+<div id="legend" class="box"></div>
+
+<script>
+// ---- same order as ROAD_CLASSES in scripts/build-roads.ps1 ----
+const CLASSES = ['motorway','trunk','primary','secondary','tertiary','unclassified','residential','living_street','service',
+  'motorway_link','trunk_link','primary_link','secondary_link','tertiary_link'];
+const CLASS_AR = ['سريع','رئيسي سريع','رئيسي','ثانوي','ثالثي','غير مصنف','سكني','شارع داخلي','خدمة','وصلة سريع','وصلة','وصلة','وصلة','وصلة'];
+const DEFAULTS = [120,100,80,70,60,60,40,20,20,60,60,50,50,40];
+const COLORS = { 0:'#7d8794', 20:'#9b8cff', 30:'#7aa2ff', 40:'#3ad1ff', 50:'#2fe0b0', 60:'#7be34a', 70:'#d4e23a', 80:'#ffc233', 90:'#ff9a2e', 100:'#ff6a3d', 110:'#ff4d6d', 120:'#e63cc6', 140:'#a63cff' };
+const colorFor = v => COLORS[v] || (v < 20 ? COLORS[20] : v > 120 ? COLORS[140] : COLORS[Math.round(v/10)*10] || COLORS[0]);
+
+const cv = document.getElementById('map'), cx = cv.getContext('2d');
+const $ = id => document.getElementById(id);
+let buf = null, view = null, hdr = null;
+let N = 0, lat1, lon1, lat2, lon2, limit0, limit, cls;   // unique segments (arrays)
+let recOfSeg = [];          // for every unique segment, the record numbers in the file that copy it (to patch on save)
+let grid = new Map(), ends = new Map();
+let edits = {};             // "lat1,lon1,lat2,lon2" -> new limit
+let sel = [], tilesOn = true, dirty = false, signs = [], signsOn = true;
+const tiles = new Map();
+let cam = { lat: 24.4672, lon: 39.6024, z: 14 };
+
+const segKey = i => lat1[i] + ',' + lon1[i] + ',' + lat2[i] + ',' + lon2[i];
+const ptKey = (a, b) => a + ',' + b;
+const lsKey = () => 'speedlimit-edits-' + (hdr ? hdr.south + '-' + hdr.west : 'x');
+
+// ---- load roads.bin ----
+async function parse(arrayBuf) {
+  buf = arrayBuf;
+  const v = new DataView(buf);
+  if (String.fromCharCode(v.getUint8(0), v.getUint8(1), v.getUint8(2), v.getUint8(3)) !== 'SLR1') throw new Error('الملف مو roads.bin');
+  hdr = { south: v.getInt32(8, true), west: v.getInt32(12, true), cell: v.getInt32(16, true), rows: v.getUint16(20, true), cols: v.getUint16(22, true), count: v.getUint32(24, true) };
+  const recStart = 32 + (hdr.rows * hdr.cols + 1) * 4;
+  const total = hdr.count, seen = new Map();
+  lat1 = []; lon1 = []; lat2 = []; lon2 = []; limit0 = []; cls = []; recOfSeg = [];
+  for (let r = 0; r < total; r++) {
+    const o = recStart + r * 20;
+    const a = v.getInt32(o, true), b = v.getInt32(o + 4, true), c = v.getInt32(o + 8, true), d = v.getInt32(o + 12, true);
+    const k = a + ',' + b + ',' + c + ',' + d;
+    let i = seen.get(k);
+    if (i === undefined) { i = lat1.length; seen.set(k, i); lat1.push(a); lon1.push(b); lat2.push(c); lon2.push(d); limit0.push(v.getUint8(o + 16)); cls.push(v.getUint8(o + 17)); recOfSeg.push([r]); }
+    else recOfSeg[i].push(r);
+  }
+  N = lat1.length; hdr.recStart = recStart;
+  limit = limit0.slice();
+  grid.clear(); ends.clear();
+  const G = 2000;   // bucket = 0.002 degrees
+  for (let i = 0; i < N; i++) {
+    const r0 = Math.floor(Math.min(lat1[i], lat2[i]) / G), r1 = Math.floor(Math.max(lat1[i], lat2[i]) / G);
+    const c0 = Math.floor(Math.min(lon1[i], lon2[i]) / G), c1 = Math.floor(Math.max(lon1[i], lon2[i]) / G);
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) { const k = r * 100000 + c; (grid.get(k) || grid.set(k, []).get(k)).push(i); }
+    for (const k of [ptKey(lat1[i], lon1[i]), ptKey(lat2[i], lon2[i])]) (ends.get(k) || ends.set(k, []).get(k)).push(i);
+  }
+  try { edits = JSON.parse(localStorage.getItem(lsKey()) || '{}'); } catch (e) { edits = {}; }
+  for (let i = 0; i < N; i++) { const e = edits[segKey(i)]; if (e !== undefined) limit[i] = e; }
+  const lat = (hdr.south + hdr.rows * hdr.cell / 2) / 1e6, lon = (hdr.west + hdr.cols * hdr.cell / 2) / 1e6;
+  cam = { lat, lon, z: 13 };
+  $('count').textContent = N.toLocaleString('ar') + ' مقطع';
+  $('status').textContent = 'جاهز';
+  buildNames();
+  draw();
+}
+
+// ---- projection (Web Mercator, same as OpenStreetMap tiles) ----
+const worldX = (lon, z) => (lon + 180) / 360 * 256 * 2 ** z;
+const worldY = (lat, z) => { const s = Math.sin(lat * Math.PI / 180); return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * 256 * 2 ** z; };
+const lonOf = (x, z) => x / (256 * 2 ** z) * 360 - 180;
+const latOf = (y, z) => { const n = Math.PI - 2 * Math.PI * y / (256 * 2 ** z); return 180 / Math.PI * Math.atan(Math.sinh(n)); };
+let W = 0, H = 0, dpr = 1;
+function toScreen(la, lo) { return [worldX(lo, cam.z) - worldX(cam.lon, cam.z) + W / 2, worldY(la, cam.z) - worldY(cam.lat, cam.z) + H / 2]; }
+function toGeo(px, py) { return [latOf(py - H / 2 + worldY(cam.lat, cam.z), cam.z), lonOf(px - W / 2 + worldX(cam.lon, cam.z), cam.z)]; }
+
+function resize() {
+  dpr = window.devicePixelRatio || 1; W = innerWidth; H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  draw();
+}
+
+// ---- drawing ----
+let raf = 0;
+function draw() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; render(); }); }
+
+function drawTiles() {
+  const tz = Math.max(3, Math.min(19, Math.floor(cam.z))), scale = 2 ** (cam.z - tz), ts = 256 * scale;
+  const cxw = worldX(cam.lon, tz), cyw = worldY(cam.lat, tz);
+  const x0 = Math.floor((cxw - W / 2 / scale) / 256), x1 = Math.floor((cxw + W / 2 / scale) / 256);
+  const y0 = Math.floor((cyw - H / 2 / scale) / 256), y1 = Math.floor((cyw + H / 2 / scale) / 256);
+  for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
+    if (ty < 0 || ty >= 2 ** tz) continue;
+    const wx = ((tx % 2 ** tz) + 2 ** tz) % 2 ** tz, key = tz + '/' + wx + '/' + ty;
+    let t = tiles.get(key);
+    if (!t) { t = new Image(); t.crossOrigin = 'anonymous'; t.onload = draw; t.src = 'https://tile.openstreetmap.org/' + key + '.png'; tiles.set(key, t); if (tiles.size > 400) tiles.delete(tiles.keys().next().value); }
+    if (t.complete && t.naturalWidth) cx.drawImage(t, (tx * 256 - cxw) * scale + W / 2, (ty * 256 - cyw) * scale + H / 2, ts + 0.5, ts + 0.5);
+  }
+}
+
+function effective(i) { return limit[i] || (cls[i] < DEFAULTS.length ? DEFAULTS[cls[i]] : 0); }
+
+function render() {
+  if (!W) return;
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cx.fillStyle = '#0e1319'; cx.fillRect(0, 0, W, H);
+  if (tilesOn) { drawTiles(); cx.fillStyle = 'rgba(8,12,18,.55)'; cx.fillRect(0, 0, W, H); }
+  if (!N) return;
+  const [laTop, loLeft] = toGeo(0, 0), [laBot, loRight] = toGeo(W, H);
+  const G = 2000, r0 = Math.floor(laBot * 1e6 / G), r1 = Math.floor(laTop * 1e6 / G), c0 = Math.floor(loLeft * 1e6 / G), c1 = Math.floor(loRight * 1e6 / G);
+  const drawn = new Set(), byColor = new Map(), dashed = [], labels = [];
+  const minor = cam.z < 14.5;
+  cx.lineCap = 'round';
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+    const list = grid.get(r * 100000 + c); if (!list) continue;
+    for (const i of list) {
+      if (drawn.has(i)) continue; drawn.add(i);
+      if (minor && (cls[i] === 6 || cls[i] === 7 || cls[i] === 8) && !edits[segKey(i)] ) continue;
+      const col = colorFor(effective(i)), est = !limit[i];
+      const k = col + (est ? 'e' : '');
+      let a = byColor.get(k); if (!a) byColor.set(k, a = { col, est, ids: [] });
+      a.ids.push(i);
+    }
+  }
+  const wScale = Math.max(1.5, (cam.z - 9) * 0.7);
+  for (const g of byColor.values()) {
+    cx.strokeStyle = g.col; cx.lineWidth = wScale * (g.est ? 0.8 : 1.15);
+    cx.setLineDash(g.est ? [wScale * 2.2, wScale * 1.4] : []);
+    cx.beginPath();
+    for (const i of g.ids) { const [ax, ay] = toScreen(lat1[i] / 1e6, lon1[i] / 1e6), [bx, by] = toScreen(lat2[i] / 1e6, lon2[i] / 1e6); cx.moveTo(ax, ay); cx.lineTo(bx, by); if (cam.z >= 16 && Math.hypot(bx - ax, by - ay) > 46) labels.push([i, (ax + bx) / 2, (ay + by) / 2]); }
+    cx.stroke();
+  }
+  cx.setLineDash([]);
+  // selection
+  if (sel.length) {
+    cx.strokeStyle = '#fff'; cx.lineWidth = wScale * 1.15 + 5; cx.globalAlpha = .85; cx.beginPath();
+    for (const i of sel) { const [ax, ay] = toScreen(lat1[i] / 1e6, lon1[i] / 1e6), [bx, by] = toScreen(lat2[i] / 1e6, lon2[i] / 1e6); cx.moveTo(ax, ay); cx.lineTo(bx, by); }
+    cx.stroke(); cx.globalAlpha = 1;
+    cx.strokeStyle = colorFor(effective(sel[0])); cx.lineWidth = wScale * 1.15 + 1; cx.beginPath();
+    for (const i of sel) { const [ax, ay] = toScreen(lat1[i] / 1e6, lon1[i] / 1e6), [bx, by] = toScreen(lat2[i] / 1e6, lon2[i] / 1e6); cx.moveTo(ax, ay); cx.lineTo(bx, by); }
+    cx.stroke();
+  }
+  // number labels on long segments
+  if (labels.length) {
+    cx.font = '700 12px system-ui'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+    for (const [i, x, y] of labels) {
+      const t = String(effective(i)); const w = cx.measureText(t).width + 8;
+      cx.fillStyle = 'rgba(10,14,20,.85)'; cx.fillRect(x - w / 2, y - 8, w, 16);
+      cx.fillStyle = limit[i] ? '#fff' : '#9aa6b5'; cx.fillText(t, x, y);
+    }
+  }
+  if (signsOn && signs.length && cam.z >= 14.5) {
+    cx.font = '700 11px system-ui'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+    for (const [la, lo, v] of signs) {
+      const [x, y] = toScreen(la, lo); if (x < -20 || y < -20 || x > W + 20 || y > H + 20) continue;
+      cx.beginPath(); cx.arc(x, y, 10, 0, 7); cx.fillStyle = '#fff'; cx.fill(); cx.lineWidth = 3; cx.strokeStyle = '#e02020'; cx.stroke();
+      cx.fillStyle = '#111'; cx.fillText(v, x, y + 0.5);
+    }
+  }
+  if (myPos) { const [x, y] = toScreen(myPos[0], myPos[1]); cx.fillStyle = '#3aa0ff'; cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.beginPath(); cx.arc(x, y, 8, 0, 7); cx.fill(); cx.stroke(); }
+  cx.fillStyle = 'rgba(255,255,255,.45)'; cx.font = '11px system-ui'; cx.textAlign = 'left'; cx.textBaseline = 'alphabetic';
+  if (tilesOn) cx.fillText('© OpenStreetMap contributors', 8, H - 6);
+}
+
+// ---- pick a road and the whole street it belongs to ----
+function nearest(px, py) {
+  const [la, lo] = toGeo(px, py), G = 2000, r = Math.floor(la * 1e6 / G), c = Math.floor(lo * 1e6 / G);
+  let best = -1, bd = 14;
+  for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+    const list = grid.get((r + dr) * 100000 + c + dc); if (!list) continue;
+    for (const i of list) {
+      const [ax, ay] = toScreen(lat1[i] / 1e6, lon1[i] / 1e6), [bx, by] = toScreen(lat2[i] / 1e6, lon2[i] / 1e6);
+      const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy, t = l2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2)) : 0;
+      const d = Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+      if (d < bd) { bd = d; best = i; }
+    }
+  }
+  return best;
+}
+// A street = connected segments of the same type and limit, passing only through plain joints (no junction)
+function street(start) {
+  const out = new Set([start]), q = [start];
+  while (q.length && out.size < 400) {
+    const i = q.pop();
+    for (const k of [ptKey(lat1[i], lon1[i]), ptKey(lat2[i], lon2[i])]) {
+      const at = ends.get(k); if (!at || at.length !== 2) continue;
+      for (const j of at) if (!out.has(j) && cls[j] === cls[start] && limit[j] === limit[start]) { out.add(j); q.push(j); }
+    }
+  }
+  return [...out];
+}
+
+// ---- side panel ----
+function metres(ids) { let m = 0; for (const i of ids) { const k = Math.cos(lat1[i] / 1e6 * Math.PI / 180); m += Math.hypot((lat2[i] - lat1[i]) * .111, (lon2[i] - lon1[i]) * .111 * k); } return Math.round(m); }
+function showSel() {
+  $('none').hidden = !!sel.length; $('sel').hidden = !sel.length;
+  if (!sel.length) return;
+  const i = sel[0], e = effective(i), g = segGroup && segGroup[i] >= 0 ? nameGroups[segGroup[i]] : null;
+  $('sname').textContent = g ? g.name + (g.en ? ' · ' + g.en : '') : 'شارع بدون اسم في OpenStreetMap';
+  $('sname').style.color = g ? '' : 'var(--muted)';
+  $('big').textContent = e || '--'; $('big').style.color = colorFor(e);
+  $('kind').textContent = CLASS_AR[cls[i]] || 'غير معروف';
+  $('src').textContent = edits[segKey(i)] !== undefined ? 'معدّلة من عندك' : limit[i] ? 'من OpenStreetMap' : 'تقديرية';
+  $('len').textContent = '~' + metres(sel) + ' م';
+  $('lim').value = e;
+}
+function apply(ids, v) {
+  for (const i of ids) { limit[i] = v; edits[segKey(i)] = v; }
+  dirty = true; localStorage.setItem(lsKey(), JSON.stringify(edits)); $('status').textContent = 'فيه تعديلات غير محفوظة في الملف'; render(); showSel();
+}
+$('quick').innerHTML = [20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 140].map(v => '<button data-v="' + v + '" style="border-bottom:3px solid ' + colorFor(v) + '">' + v + '</button>').join('');
+$('quick').onclick = e => { if (e.target.dataset.v) $('lim').value = e.target.dataset.v; };
+$('apply').onclick = () => { const v = Math.max(0, Math.min(255, parseInt($('lim').value) || 0)); if (sel.length) apply(sel, v); };
+$('applyView').onclick = () => {
+  if (!sel.length) return; const c = cls[sel[0]], v = Math.max(0, Math.min(255, parseInt($('lim').value) || 0));
+  const [laT, loL] = toGeo(0, 0), [laB, loR] = toGeo(W, H); const ids = [];
+  for (let i = 0; i < N; i++) { if (cls[i] !== c || limit[i]) continue; const la = lat1[i] / 1e6, lo = lon1[i] / 1e6; if (la <= laT && la >= laB && lo >= loL && lo <= loR) ids.push(i); }
+  if (confirm('تغيير ' + ids.length + ' مقطع (' + CLASS_AR[c] + ' وما له سرعة) إلى ' + v + '؟')) apply(ids, v);
+};
+$('reset').onclick = () => { for (const i of sel) { limit[i] = limit0[i]; delete edits[segKey(i)]; } localStorage.setItem(lsKey(), JSON.stringify(edits)); render(); showSel(); };
+$('clear').onclick = () => { sel = []; showSel(); render(); };
+
+// ---- Mapillary signs: dots on the map, and a button that copies their numbers onto the roads ----
+// (signs come from scripts/fetch-mapillary.py; they are readings of photos, so look them over before saving)
+fetch('mapillary-signs.json').then(r => { if (!r.ok) throw 0; return r.json(); }).then(j => {
+  signs = j; $('signsBtn').hidden = $('applySigns').hidden = false; $('signsBtn').textContent = 'لوحات Mapillary (' + j.length + '): شغّالة'; draw();
+}).catch(() => {});
+$('signsBtn').onclick = () => { signsOn = !signsOn; $('signsBtn').textContent = 'لوحات Mapillary (' + signs.length + '): ' + (signsOn ? 'شغّالة' : 'مطفية'); render(); };
+function distM(la, lo, i) {
+  const k = Math.cos(la * Math.PI / 180) * 111320, ax = (lon1[i] / 1e6 - lo) * k, ay = (lat1[i] / 1e6 - la) * 111320, bx = (lon2[i] / 1e6 - lo) * k, by = (lat2[i] / 1e6 - la) * 111320;
+  const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy, t = l2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2)) : 0;
+  return Math.hypot(ax + t * dx, ay + t * dy);
+}
+$('applySigns').onclick = () => {
+  if (!N || !signs.length) return;
+  const G = 2000, votes = new Map();
+  let matched = 0;
+  for (const [la, lo, v] of signs) {
+    let best = -1, bd = 30;
+    const r = Math.floor(la * 1e6 / G), c = Math.floor(lo * 1e6 / G);
+    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) for (const i of grid.get((r + dr) * 100000 + c + dc) || []) {
+      const d = distM(la, lo, i); if (d < bd) { bd = d; best = i; }
+    }
+    if (best < 0) continue; matched++;
+    const m = votes.get(best) || {}; m[v] = (m[v] || 0) + 1; votes.set(best, m);
+  }
+  const result = new Map();                       // segment -> limit
+  const winner = m => Object.entries(m).sort((a, b) => b[1] - a[1])[0][0] | 0;
+  for (const [i, m] of votes) if (!limit0[i] && edits[segKey(i)] === undefined) result.set(i, winner(m));   // roads that already have an OSM limit or your edit are left alone
+  const direct = result.size;
+  for (const [i, v] of [...result]) for (const j of street(i)) if (!result.has(j) && !limit0[j] && edits[segKey(j)] === undefined && !votes.has(j)) result.set(j, v);
+  const byV = {}; for (const v of result.values()) byV[v] = (byV[v] || 0) + 1;
+  if (!result.size) { alert('ما لقيت شوارع بدون سرعة قريبة من اللوحات.'); return; }
+  const msgText = ['اللوحات اللي طابقت شارع: ' + matched + ' من ' + signs.length,
+    'مقاطع شوارع بتتغير: ' + result.size + ' (منها ' + direct + ' مباشرة من لوحة والباقي امتداد نفس الشارع)',
+    'الشوارع اللي لها سرعة من OpenStreetMap أو عدّلتها أنت ما تنلمس.', 'تطبّق؟'].join('\n');
+  if (!confirm(msgText)) return;
+  const groups = {}; for (const [i, v] of result) (groups[v] || (groups[v] = [])).push(i);
+  for (const v in groups) apply(groups[v], +v);
+  $('status').textContent = 'انطبقت اللوحات على ' + result.size + ' مقطع. راجعها بالخريطة ثم احفظ roads.bin';
+};
+
+// ---- streets by name: change a whole named street at once (names come from scripts/osm_names.py) ----
+let nameGroups = [], segGroup = null;
+async function buildNames() {
+  segGroup = null;
+  let rows; try { rows = await (await fetch('road-names.json')).json(); } catch (e) { return; }
+  const nodeMap = new Map();
+  rows.forEach((w, wi) => { for (const [la, lo] of w[3]) { const k = la * 1e8 + lo; (nodeMap.get(k) || nodeMap.set(k, []).get(k)).push(wi); } });
+  const waysAt = (la, lo) => { const set = new Set(); for (let da = -1; da <= 1; da++) for (let db = -1; db <= 1; db++) { const l = nodeMap.get((la + da) * 1e8 + lo + db); if (l) for (const w of l) set.add(w); } return set; };
+  const bySeg = rows.map(() => []);
+  for (let i = 0; i < N; i++) {
+    const A = waysAt(lat1[i], lon1[i]); if (!A.size) continue; const B = waysAt(lat2[i], lon2[i]);
+    for (const w of A) if (B.has(w) && rows[w][2] === cls[i]) { bySeg[w].push(i); break; }
+  }
+  const groups = new Map();
+  rows.forEach((w, wi) => {
+    if (!bySeg[wi].length) return;
+    let g = groups.get(w[0]); if (!g) groups.set(w[0], g = { name: w[0], en: w[1], ids: [], cls: [] });
+    g.ids.push(...bySeg[wi]); g.cls.push(w[2]);
+  });
+  nameGroups = [...groups.values()].sort((a, b) => b.ids.length - a.ids.length);
+  segGroup = new Int32Array(N).fill(-1); nameGroups.forEach((g, gi) => { for (const i of g.ids) segGroup[i] = gi; });
+  $('namesBtn').hidden = !nameGroups.length; renderNames();
+}
+function modeLimit(ids) { const c = {}; let est = 0; for (const i of ids) { const e = effective(i); c[e] = (c[e] || 0) + 1; if (!limit[i]) est++; } const m = Object.entries(c).sort((a, b) => b[1] - a[1])[0]; return [m ? +m[0] : 0, est * 2 > ids.length]; }
+function renderNames(hi) {
+  const q = $('nsearch').value.trim().toLowerCase(), box = $('nlist'); box.innerHTML = '';
+  const frag = document.createDocumentFragment(); let shown = 0;
+  nameGroups.forEach((g, gi) => {
+    if (q && !(g.name + ' ' + g.en).toLowerCase().includes(q)) return; if (++shown > 150 && gi !== hi) return;
+    const [m, est] = modeLimit(g.ids), cl = g.cls.sort((a, b) => g.cls.filter(x => x === a).length - g.cls.filter(x => x === b).length).pop();
+    const d = document.createElement('div'); d.className = 'nrow';
+    d.innerHTML = '<span class="nname"></span><span class="nmeta"></span><input type="number" min="0" max="200" step="5" class="nlim"><button>تطبيق</button>';
+    d.querySelector('.nname').textContent = g.name + (g.en ? ' · ' + g.en : '');
+    d.querySelector('.nmeta').textContent = (CLASS_AR[cl] || '') + ' · ' + g.ids.length + ' مقطع' + (est ? ' · تقدير' : '');
+    const inp = d.querySelector('input'); inp.value = m;
+    d.querySelector('.nname').onclick = () => focusIds(g.ids);
+    d.querySelector('button').onclick = () => { const v = Math.max(0, Math.min(255, parseInt(inp.value) || 0)); apply(g.ids, v); sel = g.ids.slice(); showSel(); renderNames(); };
+    if (gi === hi) { d.style.background = 'rgba(58,160,255,.18)'; d.style.borderRadius = '8px'; d.style.padding = '7px 6px'; d.dataset.hit = '1'; }
+    frag.appendChild(d);
+  });
+  box.appendChild(frag); const hit = box.querySelector('[data-hit]'); if (hit) hit.scrollIntoView({ block: 'center' }); if (!shown) box.innerHTML = '<div class="hint">ما فيه شوارع بهذا الاسم</div>';
+}
+function focusIds(ids) {
+  sel = ids.slice(); let a = 1e9, b = -1e9, c = 1e9, d = -1e9;
+  for (const i of ids) { a = Math.min(a, lat1[i], lat2[i]); b = Math.max(b, lat1[i], lat2[i]); c = Math.min(c, lon1[i], lon2[i]); d = Math.max(d, lon1[i], lon2[i]); }
+  cam.lat = (a + b) / 2e6; cam.lon = (c + d) / 2e6;
+  const spanPx = Math.max(worldX(d / 1e6, 0) - worldX(c / 1e6, 0), worldY(a / 1e6, 0) - worldY(b / 1e6, 0)) || 1e-6;
+  cam.z = Math.max(11, Math.min(17, Math.log2(Math.min(W - 420, H - 120) * .8 / spanPx)));
+  showSel(); draw();
+}
+// clicking a road on the map: say which named street it is and mark it in the list
+function revealInNames(i) {
+  const gi = segGroup && i >= 0 ? segGroup[i] : -1;
+  if (gi < 0) return;
+  $('names').hidden = false; $('nsearch').value = ''; renderNames(gi);
+}
+$('namesBtn').onclick = () => { $('names').hidden = !$('names').hidden; if (!$('names').hidden) renderNames(); };
+$('namesClose').onclick = () => { $('names').hidden = true; };
+$('nsearch').oninput = renderNames;
+
+// ---- legend ----
+$('legend').innerHTML = '<span>الألوان:</span>' + [20, 40, 60, 80, 100, 120, 140].map(v => '<span><i style="background:' + colorFor(v) + '"></i>' + v + '</span>').join('') + '<span>متقطع = تقدير</span><span>الرقم الرمادي = تقدير</span>';
+
+// ---- save a patched roads.bin ----
+$('save').onclick = () => {
+  if (!buf) return;
+  const out = buf.slice(0), v = new DataView(out); let n = 0;
+  for (let i = 0; i < N; i++) { if (limit[i] === limit0[i]) continue; for (const r of recOfSeg[i]) v.setUint8(hdr.recStart + r * 20 + 16, limit[i]); n++; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([out], { type: 'application/octet-stream' })); a.download = 'roads.bin'; a.click();
+  $('status').textContent = 'انحفظ roads.bin (' + n + ' مقطع معدّل). ارفعه للجهاز بالأمر: scripts\\flash-map.ps1 <المسار>';
+  dirty = false;
+};
+
+// ---- misc buttons ----
+$('open').onclick = () => $('file').click();
+$('file').onchange = async e => { const f = e.target.files[0]; if (f) { $('status').textContent = 'يحمّل…'; try { await parse(await f.arrayBuffer()); } catch (er) { $('status').textContent = er.message; } } };
+$('tilesBtn').onclick = () => { tilesOn = !tilesOn; $('tilesBtn').textContent = 'الخريطة تحت: ' + (tilesOn ? 'شغّالة' : 'مطفية'); render(); };
+let myPos = null;
+$('locate').onclick = () => navigator.geolocation && navigator.geolocation.getCurrentPosition(p => { myPos = [p.coords.latitude, p.coords.longitude]; cam.lat = myPos[0]; cam.lon = myPos[1]; cam.z = Math.max(cam.z, 16); draw(); }, () => $('status').textContent = 'ما قدرت أحدد موقعك');
+addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+// ---- pan / zoom / click ----
+let drag = null, pts = new Map(), pinch = 0;
+cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); drag = { x: e.clientX, y: e.clientY, moved: 0 }; if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); } });
+cv.addEventListener('pointermove', e => {
+  if (!pts.has(e.pointerId)) return;
+  const prev = pts.get(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]);
+  if (pts.size === 2) { const [a, b] = [...pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]); if (pinch) { cam.z = Math.max(9, Math.min(19, cam.z + Math.log2(d / pinch))); } pinch = d; draw(); if (drag) drag.moved = 99; return; }
+  const dx = e.clientX - prev[0], dy = e.clientY - prev[1]; if (!drag) return; drag.moved += Math.abs(dx) + Math.abs(dy);
+  if (drag.moved > 4) { cv.classList.add('drag'); const cxw = worldX(cam.lon, cam.z) - dx, cyw = worldY(cam.lat, cam.z) - dy; cam.lon = lonOf(cxw, cam.z); cam.lat = latOf(cyw, cam.z); draw(); }
+});
+cv.addEventListener('pointerup', e => {
+  pts.delete(e.pointerId); pinch = 0; cv.classList.remove('drag');
+  if (drag && drag.moved <= 4 && N) { const i = nearest(e.clientX, e.clientY); sel = i < 0 ? [] : street(i); showSel(); render(); revealInNames(i); }
+  if (!pts.size) drag = null;
+});
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const [la, lo] = toGeo(e.clientX, e.clientY); cam.z = Math.max(9, Math.min(19, cam.z - e.deltaY * 0.0015));
+  const [la2, lo2] = toGeo(e.clientX, e.clientY); cam.lat += la - la2; cam.lon += lo - lo2; draw();
+}, { passive: false });
+addEventListener('resize', resize);
+
+resize();
+fetch('../roads.signs.bin').then(r => r.ok ? r : fetch('../roads.bin')).then(r => { if (!r.ok) throw 0; return r.arrayBuffer(); }).then(parse)   // the map with the signs applied is the one on the device
+  .catch(() => { $('status').textContent = 'اضغط «فتح roads.bin…» واختر الملف من مجلد المشروع'; });
+</script>
+</body>
+</html>
