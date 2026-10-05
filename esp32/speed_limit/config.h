@@ -34,7 +34,7 @@
 #define SPEED_OFFSET_KMH 5
 
 // How many km/h over a GUESSED limit (road without a real limit in the map) before the screen turns red
-#define EST_TOLERANCE 10
+#define EST_TOLERANCE 2    // same as for a real limit; raise it from the phone app if guessed limits nag you
 
 // Bluetooth link to the phone app (remote/). The app must send this PIN before it can change anything;
 // the PIN can be changed from the app, and the new one is kept in the chip.
